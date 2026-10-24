@@ -31,6 +31,10 @@ object Rules {
         "com.google.android.apps.magazines", "com.google.android.apps.tachyon"
     )
 
+    /** Критичные системные пакеты: их нельзя отключать или удалять ни при каких условиях. */
+    fun isCritical(p: String): Boolean =
+        p == "android" || criticalPrefix.any { p.startsWith(it) } || criticalWords.any { p.contains(it) }
+
     fun classify(a: AppData, now: Long, usageKnown: Boolean): Pair<String, String> {
         if (!a.enabled) return "Уже отключено" to "Приложение уже отключено в системе."
         val p = a.pkg

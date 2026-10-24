@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <application
         android:label="Анализ телефона"
         android:allowBackup="false"
@@ -16,6 +17,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".CleanupActivity" android:exported="false" />
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <service android:name=".SnapshotJob"
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false" />

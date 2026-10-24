@@ -50,11 +50,11 @@ class MainActivity : Activity() {
         collector = Collector(applicationContext)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("Сводка", "Приложения", "Изменения", "Отчёт").forEachIndexed { i, t ->
+        listOf("Сводка", "Приложения", "Изменения", "Отчёт", "Очистка").forEachIndexed { i, t ->
             nav.addView(Button(this).apply {
-                text = t; textSize = 12f
+                text = t; textSize = 11f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                setOnClickListener { show(i) }
+                setOnClickListener { if (i == 4) startActivity(Intent(this@MainActivity, CleanupActivity::class.java)) else show(i) }
             })
         }
         content = FrameLayout(this)
