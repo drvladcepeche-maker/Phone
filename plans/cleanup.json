@@ -1,0 +1,17 @@
+{
+  "note": "Только системные приложения, только отключение (обратимо): Meta, Google TV, Meet, YouTube Music, реклама и аналитика MIUI, Mi Браузер, Mi Видео, Игровой центр, GetApps",
+  "disable": [
+    "com.facebook.appmanager",
+    "com.facebook.services",
+    "com.facebook.system",
+    "com.google.android.videos",
+    "com.google.android.apps.tachyon",
+    "com.google.android.apps.youtube.music",
+    "com.miui.analytics",
+    "com.miui.msa.global",
+    "com.mi.globalbrowser",
+    "com.miui.videoplayer",
+    "com.xiaomi.glgm",
+    "com.xiaomi.mipicks"
+  ]
+}
