@@ -309,15 +309,16 @@ class MainActivity : Activity() {
     }
 
     private fun confirmUpload(token: String, repo: String, json: String) {
-        val name = "report-" + Fmt.stamp(System.currentTimeMillis()) + ".json"
+        val name = "report-" + Fmt.stamp(System.currentTimeMillis()) + ".json.gz"
+        val data = Reporter.gzip(json)
         AlertDialog.Builder(this).setTitle("Отправить отчёт?")
-            .setMessage("Приложений: " + apps.size + "\nРазмер: " + Fmt.bytes(json.toByteArray(Charsets.UTF_8).size.toLong()) +
+            .setMessage("Приложений: " + apps.size + "\nРазмер: " + Fmt.bytes(json.toByteArray(Charsets.UTF_8).size.toLong()) + " (в архиве gzip: " + Fmt.bytes(data.size.toLong()) + ")" +
                 "\nРазделы: сводка устройства; по каждому приложению — версия, размеры, время на экране, трафик по дням, службы, автозапуск, разрешения, категория и причина." +
                 "\n\nКуда: " + repo + "/reports/" + name + "\nТокен в отчёт не входит. Файл можно сначала сохранить и просмотреть.")
             .setPositiveButton("Отправить") { _, _ ->
                 toast("Отправка…")
                 bg {
-                    val url = Reporter.upload(token, repo, name, json)
+                    val url = Reporter.upload(token, repo, name, data) { n -> runOnUiThread { toast("Повтор, попытка " + n + " из 3…") } }
                     runOnUiThread { AlertDialog.Builder(this).setTitle("Отправлено").setMessage(url).setPositiveButton("Закрыть", null).show() }
                 }
             }

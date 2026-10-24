@@ -83,36 +83,66 @@ object Reporter {
         return sb.toString()
     }
 
-    /** Загружает файл в папку reports/ репозитория. Возвращает ссылку на файл. */
-    fun upload(token: String, repo: String, fileName: String, content: String): String {
+    /** Сжимает текст в gzip: JSON-отчёт уменьшается примерно в 8–10 раз. */
+    fun gzip(text: String): ByteArray {
+        val bos = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(bos).use { it.write(text.toByteArray(Charsets.UTF_8)) }
+        return bos.toByteArray()
+    }
+
+    /**
+     * Загружает файл в папку reports/ репозитория, до 3 попыток при сбоях сети.
+     * Возвращает ссылку на файл. onRetry вызывается перед повторной попыткой.
+     */
+    fun upload(token: String, repo: String, fileName: String, data: ByteArray, onRetry: (Int) -> Unit = {}): String {
+        val body = JSONObject()
+            .put("message", "Отчёт " + fileName)
+            .put("content", Base64.encodeToString(data, Base64.NO_WRAP))
+            .toString().toByteArray(Charsets.UTF_8)
+        var last: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                return uploadOnce(token, repo, fileName, body)
+            } catch (e: java.io.IOException) {
+                last = e
+                if (attempt < 3) {
+                    onRetry(attempt + 1)
+                    Thread.sleep(attempt * 3000L)
+                }
+            }
+        }
+        val why = if (last is java.net.SocketTimeoutException) "таймаут" else (last?.message ?: "сбой сети")
+        throw Exception("Не удалось отправить за 3 попытки (" + why + "). Отключите VPN, подключитесь к Wi-Fi и повторите.")
+    }
+
+    private fun uploadOnce(token: String, repo: String, fileName: String, body: ByteArray): String {
         val url = URL("https://api.github.com/repos/" + repo + "/contents/reports/" + fileName)
         val conn = url.openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "PUT"
-            conn.connectTimeout = 20000
+            conn.connectTimeout = 30000
             conn.readTimeout = 120000
             conn.doOutput = true
+            conn.setFixedLengthStreamingMode(body.size)
             conn.setRequestProperty("Authorization", "Bearer " + token)
             conn.setRequestProperty("Accept", "application/vnd.github+json")
             conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
             conn.setRequestProperty("Content-Type", "application/json")
-            val body = JSONObject()
-                .put("message", "Отчёт " + fileName)
-                .put("content", Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
-            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            conn.outputStream.use { it.write(body) }
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
-            if (code !in 200..299) {
-                val msg = try { JSONObject(text).getString("message") } catch (e: Exception) { text.take(200) }
-                val hint = when (code) {
-                    401 -> " Токен неверный или истёк."
-                    403, 404 -> " Проверьте имя репозитория и права токена (Contents: Read and write)."
-                    else -> ""
-                }
-                throw Exception("HTTP " + code + ": " + msg + hint)
+            if (code in 200..299) return JSONObject(text).getJSONObject("content").getString("html_url")
+            val msg = try { JSONObject(text).getString("message") } catch (e: Exception) { text.take(200) }
+            // Файл уже создан предыдущей попыткой, ответ на которую потерялся по сети.
+            if (code == 422 && msg.contains("sha")) return "https://github.com/" + repo + "/blob/main/reports/" + fileName
+            if (code >= 500) throw java.io.IOException("HTTP " + code)
+            val hint = when (code) {
+                401 -> " Токен неверный или истёк."
+                403, 404 -> " Проверьте имя репозитория и права токена (Contents: Read and write)."
+                else -> ""
             }
-            return JSONObject(text).getJSONObject("content").getString("html_url")
+            throw Exception("HTTP " + code + ": " + msg + hint)
         } finally {
             conn.disconnect()
         }
