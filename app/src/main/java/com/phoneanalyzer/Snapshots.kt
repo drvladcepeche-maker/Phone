@@ -14,17 +14,28 @@ object Snapshots {
     fun list(ctx: Context): List<File> =
         (dir(ctx).listFiles { f -> f.name.startsWith("snapshot-") }?.toList() ?: emptyList()).sortedBy { it.name }
 
-    fun save(ctx: Context, apps: List<AppData>): File {
+    fun save(ctx: Context, apps: List<AppData>, device: JSONObject = JSONObject()): File {
         val now = System.currentTimeMillis()
         val arr = JSONArray()
         for (a in apps) arr.put(JSONObject().apply {
             put("p", a.pkg); put("n", a.label); put("vc", a.versionCode)
             put("cache", a.cacheBytes); put("data", a.dataBytes); put("app", a.appBytes)
             put("traffic", a.traffic30)
+            put("lastUsed", a.lastUsed)
+            put("fg30", a.fg30)
+            put("wifi", a.wifiDaily.sum())
+            put("mobile", a.mobileDaily.sum())
+            put("boot", a.bootStart)
+            put("bgLocation", a.bgLocation)
+            put("accessibility", a.accessibility)
+            put("notifListener", a.notifListener)
+            put("deviceAdmin", a.deviceAdmin)
+            put("batteryUnrestricted", a.batteryUnrestricted)
+            put("services", JSONArray().also { j -> a.services.forEach { j.put(it) } })
             put("g", JSONArray().also { j -> a.granted.forEach { j.put(it) } })
         })
         val f = File(dir(ctx), "snapshot-" + Fmt.stamp(now) + ".json")
-        f.writeText(JSONObject().put("time", now).put("apps", arr).toString())
+        f.writeText(JSONObject().put("schemaVersion", 2).put("time", now).put("device", device).put("apps", arr).toString())
         val all = list(ctx)
         if (all.size > MAX) all.take(all.size - MAX).forEach { it.delete() }
         return f
@@ -44,6 +55,20 @@ object Snapshots {
         val b = index(n)
         val sb = StringBuilder()
         sb.append("Сравнение: ").append(Fmt.date(o.getLong("time"))).append(" → ").append(Fmt.date(n.getLong("time"))).append("\n\n")
+        val od = o.optJSONObject("device") ?: JSONObject()
+        val nd = n.optJSONObject("device") ?: JSONObject()
+        val deviceFields = listOf(
+            "android" to "Версия Android", "sdk" to "Уровень API",
+            "securityPatch" to "Патч безопасности", "fingerprint" to "Сборка системы",
+            "bootloader" to "Загрузчик", "timezone" to "Часовой пояс",
+            "locale" to "Язык системы", "densityDpi" to "Плотность экрана"
+        )
+        val deviceChanges = deviceFields.mapNotNull { (key, label) ->
+            val before = od.optString(key, "")
+            val after = nd.optString(key, "")
+            if (before.isNotBlank() && after.isNotBlank() && before != after) "$label: $before → $after" else null
+        }
+        section("Изменения устройства", deviceChanges)
         fun section(title: String, lines: List<String>) {
             if (lines.isEmpty()) return
             sb.append(title).append(" (").append(lines.size).append("):\n")
