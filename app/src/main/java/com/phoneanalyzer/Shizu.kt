@@ -94,13 +94,13 @@ object Shizu {
         val outThread = Thread {
             process.inputStream.bufferedReader().useLines { lines ->
                 for (line in lines) {
-                    if (stdout.length < 4 * 1024 * 1024) stdout.append(line).append('\\n')
+                    if (stdout.length < 4 * 1024 * 1024) stdout.append(line).append('\n')
                 }
             }
         }
         val errThread = Thread {
             process.errorStream.bufferedReader().useLines { lines ->
-                for (line in lines) if (stderr.length < 16000) stderr.append(line).append('\\n')
+                for (line in lines) if (stderr.length < 16000) stderr.append(line).append('\n')
             }
         }
         outThread.start()
@@ -108,6 +108,6 @@ object Shizu {
         val code = process.waitFor()
         outThread.join(10000)
         errThread.join(10000)
-        return code to (stdout.toString() + "\\n" + stderr.toString()).take(4 * 1024 * 1024)
+        return code to (stdout.toString() + "\n" + stderr.toString()).take(4 * 1024 * 1024)
     }
 }
