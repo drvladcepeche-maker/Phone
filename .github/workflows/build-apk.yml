@@ -38,7 +38,7 @@ jobs:
         run: |
           if [ -z "$PHONE_KEYSTORE_BASE64" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::PHONE signing secrets are missing. Debug APK will use the runner's temporary debug key and may not update an APK signed by another key."
+            echo "::warning::Stable signing is not configured. Only a non-release validation build will be produced."
             exit 0
           fi
           for name in PHONE_KEYSTORE_PASSWORD PHONE_KEY_ALIAS PHONE_KEY_PASSWORD; do
@@ -50,6 +50,7 @@ jobs:
           KEYSTORE_PATH="$RUNNER_TEMP/phone-signing.p12"
           printf '%s' "$PHONE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           test -s "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -storetype PKCS12 -storepass "$PHONE_KEYSTORE_PASSWORD" -alias "$PHONE_KEY_ALIAS" >/dev/null
           {
             echo "PHONE_KEYSTORE_PATH=$KEYSTORE_PATH"
             echo "PHONE_KEYSTORE_PASSWORD=$PHONE_KEYSTORE_PASSWORD"
@@ -62,14 +63,20 @@ jobs:
       - name: Build signed release APK
         if: steps.signing.outputs.configured == 'true'
         run: gradle assembleRelease --no-daemon
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phone-analyzer-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - name: Rename release APK
         if: steps.signing.outputs.configured == 'true'
+        run: cp app/build/outputs/apk/release/app-release.apk PhoneAnalyzer-2-v1.0.0.apk
+      - name: Upload signed release APK
+        if: steps.signing.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
         with:
-          name: phone-analyzer-release
-          path: app/build/outputs/apk/release/app-release.apk
+          name: PhoneAnalyzer-2-v1.0.0
+          path: PhoneAnalyzer-2-v1.0.0.apk
+          if-no-files-found: error
+      - name: Upload debug validation APK
+        if: steps.signing.outputs.configured != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhoneAnalyzer-2-debug-validation-only
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
