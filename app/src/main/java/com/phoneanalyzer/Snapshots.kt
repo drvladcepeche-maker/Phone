@@ -54,6 +54,12 @@ object Snapshots {
         val a = index(o)
         val b = index(n)
         val sb = StringBuilder()
+        fun section(title: String, lines: List<String>) {
+            if (lines.isEmpty()) return
+            sb.append(title).append(" (").append(lines.size).append("):\n")
+            lines.take(40).forEach { sb.append("• ").append(it).append("\n") }
+            sb.append("\n")
+        }
         sb.append("Сравнение: ").append(Fmt.date(o.getLong("time"))).append(" → ").append(Fmt.date(n.getLong("time"))).append("\n\n")
         val od = o.optJSONObject("device") ?: JSONObject()
         val nd = n.optJSONObject("device") ?: JSONObject()
@@ -69,12 +75,6 @@ object Snapshots {
             if (before.isNotBlank() && after.isNotBlank() && before != after) "$label: $before → $after" else null
         }
         section("Изменения устройства", deviceChanges)
-        fun section(title: String, lines: List<String>) {
-            if (lines.isEmpty()) return
-            sb.append(title).append(" (").append(lines.size).append("):\n")
-            lines.take(40).forEach { sb.append("• ").append(it).append("\n") }
-            sb.append("\n")
-        }
         section("Установлены", b.keys.filter { it !in a }.map { b[it]!!.getString("n") })
         section("Удалены", a.keys.filter { it !in b }.map { a[it]!!.getString("n") })
         section("Обновлены", b.keys.filter { a[it] != null && a[it]!!.getLong("vc") != b[it]!!.getLong("vc") }.map { b[it]!!.getString("n") })
