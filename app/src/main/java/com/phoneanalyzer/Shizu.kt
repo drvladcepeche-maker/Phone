@@ -81,4 +81,33 @@ object Shizu {
             !result.second.contains("Failure", ignoreCase = true) &&
             !result.second.contains("Error", ignoreCase = true) &&
             !result.second.contains("Exception", ignoreCase = true)
+
+    /**
+     * Read-only system AppOps history. This is intentionally a fixed command:
+     * no caller-provided shell text or package arguments are accepted.
+     */
+    fun execAppOpsDump(): Pair<Int, String> {
+        require(ready()) { "Shizuku не запущен или разрешение не выдано" }
+        val process = newProcess(arrayOf("dumpsys", "appops"))
+        val stdout = StringBuilder()
+        val stderr = StringBuilder()
+        val outThread = Thread {
+            process.inputStream.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    if (stdout.length < 4 * 1024 * 1024) stdout.append(line).append('\\n')
+                }
+            }
+        }
+        val errThread = Thread {
+            process.errorStream.bufferedReader().useLines { lines ->
+                for (line in lines) if (stderr.length < 16000) stderr.append(line).append('\\n')
+            }
+        }
+        outThread.start()
+        errThread.start()
+        val code = process.waitFor()
+        outThread.join(10000)
+        errThread.join(10000)
+        return code to (stdout.toString() + "\\n" + stderr.toString()).take(4 * 1024 * 1024)
+    }
 }
