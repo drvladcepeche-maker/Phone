@@ -1,11 +1,24 @@
-name: Build APK
+name: Build Phone Analyzer APK
+
 on:
   push:
+    branches: [main, "feature/**"]
+  pull_request:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PHONE_KEYSTORE_BASE64: ${{ secrets.PHONE_KEYSTORE_BASE64 }}
+      PHONE_KEYSTORE_PASSWORD: ${{ secrets.PHONE_KEYSTORE_PASSWORD }}
+      PHONE_KEY_ALIAS: ${{ secrets.PHONE_KEY_ALIAS }}
+      PHONE_KEY_PASSWORD: ${{ secrets.PHONE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -15,12 +28,48 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
-      - name: Install SDK packages
+      - name: Install Android SDK packages
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"
-      - run: gradle assembleDebug --no-daemon
+      - name: Configure stable signing
+        id: signing
+        shell: bash
+        run: |
+          if [ -z "$PHONE_KEYSTORE_BASE64" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::PHONE signing secrets are missing. Debug APK will use the runner's temporary debug key and may not update an APK signed by another key."
+            exit 0
+          fi
+          for name in PHONE_KEYSTORE_PASSWORD PHONE_KEY_ALIAS PHONE_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository secret: $name"
+              exit 1
+            fi
+          done
+          KEYSTORE_PATH="$RUNNER_TEMP/phone-signing.p12"
+          printf '%s' "$PHONE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          {
+            echo "PHONE_KEYSTORE_PATH=$KEYSTORE_PATH"
+            echo "PHONE_KEYSTORE_PASSWORD=$PHONE_KEYSTORE_PASSWORD"
+            echo "PHONE_KEY_ALIAS=$PHONE_KEY_ALIAS"
+            echo "PHONE_KEY_PASSWORD=$PHONE_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+      - name: Build signed release APK
+        if: steps.signing.outputs.configured == 'true'
+        run: gradle assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: phone-analyzer-apk
+          name: phone-analyzer-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.configured == 'true'
+        with:
+          name: phone-analyzer-release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
