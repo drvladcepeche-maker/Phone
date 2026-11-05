@@ -387,21 +387,36 @@ class MainActivity : Activity() {
                 "Контакты, сообщения, звонки, файлы и местоположение не входят в отчёт.\n\n" +
                 "Отчёт будет сохранён в закрытой таблице Supabase для последующей серверной обработки. Автоматическая отправка не включается."
             )
-            .setPositiveButton("Отправить") { _, _ ->
-                toast("Отправка отчёта…")
-                bg {
-                    val result = ServerBridge.uploadReport(this, json, reportId)
-                    val summary = result.optJSONObject("summary")
-                    runOnUiThread {
-                        AlertDialog.Builder(this)
-                            .setTitle("Отчёт принят сервером")
-                            .setMessage(
-                                "ID: " + result.optString("report_id") + "\n" +
-                                "Приложений обработано: " + (summary?.optInt("appCount") ?: apps.size) + "\n" +
-                                "Устройство: " + (summary?.optString("deviceModel") ?: device.optString("model"))
-                            )
-                            .setPositiveButton("Закрыть", null).show()
-                    }
+            .setPositiveButton("Поставить в очередь") { _, _ ->
+                try {
+                    val queueDir = java.io.File(filesDir, "queued_reports")
+                    if (!queueDir.exists() && !queueDir.mkdirs()) throw java.io.IOException("Не удалось создать папку очереди")
+                    val reportFile = java.io.File(queueDir, "report-$reportId.json")
+                    reportFile.writeText(json, Charsets.UTF_8)
+                    val request = androidx.work.OneTimeWorkRequest.Builder(ReportUploadWorker::class.java)
+                        .setInputData(androidx.work.workDataOf(
+                            "report_path" to reportFile.absolutePath,
+                            "report_id" to reportId
+                        ))
+                        .setConstraints(
+                            androidx.work.Constraints.Builder()
+                                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                                .build()
+                        )
+                        .setBackoffCriteria(
+                            androidx.work.BackoffPolicy.EXPONENTIAL,
+                            30,
+                            java.util.concurrent.TimeUnit.SECONDS
+                        )
+                        .build()
+                    androidx.work.WorkManager.getInstance(this).enqueueUniqueWork(
+                        "phone_report_upload_$reportId",
+                        androidx.work.ExistingWorkPolicy.KEEP,
+                        request
+                    )
+                    toast("Отчёт поставлен в очередь. Отправка продолжится в фоне.")
+                } catch (e: Exception) {
+                    toast(e.message ?: "Не удалось поставить отчёт в очередь")
                 }
             }
             .setNegativeButton("Отмена", null).show()
