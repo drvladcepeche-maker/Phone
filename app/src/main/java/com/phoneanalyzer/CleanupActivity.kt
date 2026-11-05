@@ -336,7 +336,7 @@ class CleanupActivity : Activity() {
         if (Shizu.ready() && Shizu.validPkg(a.pkg)) {
             busy = true; render()
             bg {
-                val r = try { Shizu.exec("pm enable --user 0 " + a.pkg) } catch (e: Throwable) { -1 to (e.message ?: "ошибка") }
+                val r = try { Shizu.execPm("enable", a.pkg, a.system) } catch (e: Throwable) { -1 to (e.message ?: "ошибка") }
                 val ok = Shizu.succeeded(r)
                 log(Item(a.pkg, a.label, "enable", a.system, ""), ok, r.second.take(120))
                 runOnUiThread { busy = false; toast(if (ok) "Включено: " + a.label else "Не удалось: " + r.second.take(80)); reload() }
