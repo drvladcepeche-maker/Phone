@@ -37,6 +37,7 @@ class MainActivity : Activity() {
     private var current = 0
     private var filterIdx = 0
     private var sortIdx = 0
+    private var privacyEvents: List<PrivacyEvent> = emptyList()
 
     private val filters = listOf("Все", "Пользовательские", "Системные", "Давно не используемые", "Удалить или отключить")
     private val sorts = listOf("По имени", "По месту (данные+кэш)", "По трафику", "По времени на экране")
@@ -53,7 +54,7 @@ class MainActivity : Activity() {
         collector = Collector(applicationContext)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("Сводка", "Приложения", "Изменения", "Отчёт", "Очистка").forEachIndexed { i, t ->
+        listOf("Сводка", "Приложения", "Изменения", "Отчёт", "Очистка", "Защита").forEachIndexed { i, t ->
             nav.addView(Button(this).apply {
                 text = t; textSize = 11f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -128,6 +129,7 @@ class MainActivity : Activity() {
             0 -> content.addView(scroll(summaryView()))
             1 -> content.addView(appsView())
             2 -> content.addView(scroll(changesView()))
+            5 -> content.addView(scroll(privacyView()))
             else -> content.addView(scroll(reportView()))
         }
     }
@@ -183,6 +185,69 @@ class MainActivity : Activity() {
         }
         c.addView(tv("Время и трафик берутся из системной статистики; расход батареи и процессора по чужим приложениям Android не раскрывает, поэтому оценки приблизительные.", 12f))
         c.addView(btn("Обновить данные") { reload() })
+        return c
+    }
+
+    // ---------- Монитор приватности ----------
+
+    private fun privacyView(): View {
+        val c = col()
+        c.addView(tv("Защита от нежелательной активности", 18f))
+        c.addView(tv(
+            "Журнал AppOps показывает зарегистрированные Android обращения к геолокации, камере, микрофону и отдельным датчикам. " +
+            "Отметка «фон» означает, что система зарегистрировала операцию в фоновом состоянии. Это повод проверить приложение, но не доказательство передачи данных третьим лицам.",
+            13f
+        ))
+        if (!Shizu.ready()) {
+            c.addView(tv("Для чтения системного журнала нужен Shizuku. Установи и запусти его, затем выдай разрешение приложению."))
+            if (!Shizu.installed(this)) {
+                c.addView(btn("Установить Shizuku") { openExternal("https://shizuku.rikka.app/download/") })
+            } else if (!Shizu.running()) {
+                c.addView(btn("Открыть Shizuku") { openShizuku() })
+            } else {
+                c.addView(btn("Запросить разрешение") { if (!Shizu.request()) toast("Не удалось запросить разрешение Shizuku") })
+            }
+        } else {
+            c.addView(btn("Проверить системный журнал") {
+                toast("Читаю журнал AppOps…")
+                bg {
+                    val found = PrivacyAudit.scan(this)
+                    runOnUiThread {
+                        privacyEvents = found
+                        show(5)
+                        toast("Записей AppOps: ${found.size}")
+                    }
+                }
+            })
+        }
+
+        if (privacyEvents.isEmpty()) {
+            c.addView(tv("События ещё не загружены. Выполни проверку журнала."))
+        } else {
+            val recent = privacyEvents.filter { System.currentTimeMillis() - it.timestamp < 24L * 3600 * 1000 }
+            c.addView(tv("События за последние 24 часа: ${recent.size}. Период журнала — до 7 дней, если Android сохранил записи.", 13f))
+            privacyEvents.take(100).forEach { event ->
+                val status = when {
+                    event.rejected -> "ЗАБЛОКИРОВАНО"
+                    event.background -> "ФОНОВЫЙ ДОСТУП — ПРОВЕРИТЬ"
+                    else -> "доступ зарегистрирован"
+                }
+                val line = "${event.appLabel}\n${event.resource} · ${PrivacyAudit.formatTime(event.timestamp)}\n$status · режим: ${event.mode}\n${event.packageName}"
+                c.addView(tv(line, 13f))
+            }
+        }
+
+        c.addView(tv("Сетевая активность", 17f))
+        c.addView(tv(
+            "Ниже — общий объём Wi‑Fi и мобильного трафика за текущие сутки по статистике Android. Система не всегда разделяет его на фоновый и активный режим; объём сам по себе не доказывает утечку данных.",
+            12f
+        ))
+        apps.map { app ->
+            val bytes = (app.wifiDaily.lastOrNull() ?: 0L) + (app.mobileDaily.lastOrNull() ?: 0L)
+            app to bytes
+        }.filter { it.second > 0L }.sortedByDescending { it.second }.take(15).forEach { (app, bytes) ->
+            c.addView(tv("${app.label}: ${Fmt.bytes(bytes)}", 13f))
+        }
         return c
     }
 
