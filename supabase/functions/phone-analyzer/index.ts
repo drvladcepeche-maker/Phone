@@ -68,13 +68,30 @@ Deno.serve(async (req: Request) => {
 
   let body: Record<string, unknown>;
   try {
-    const raw = await req.text();
-    if (new TextEncoder().encode(raw).length > 5_500_000) return json({ error: "Request too large" }, 413);
+    const compressed = req.headers.get("content-encoding")?.toLowerCase() === "gzip";
+    const source = req.body;
+    if (!source) return json({ error: "Request body required" }, 400);
+    const decoded = compressed ? source.pipeThrough(new DecompressionStream("gzip")) : source;
+    const reader = decoded.getReader();
+    const decoder = new TextDecoder();
+    let raw = "";
+    let total = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > 26_214_400) {
+        await reader.cancel();
+        return json({ error: "Decompressed request exceeds 25 MiB" }, 413);
+      }
+      raw += decoder.decode(value, { stream: true });
+    }
+    raw += decoder.decode();
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return json({ error: "JSON object required" }, 400);
     body = parsed as Record<string, unknown>;
   } catch {
-    return json({ error: "Invalid or oversized JSON body" }, 400);
+    return json({ error: "Invalid, oversized, or unsupported compressed JSON body" }, 400);
   }
 
   const supabase = createClient(url, serviceKey, {
@@ -113,7 +130,7 @@ Deno.serve(async (req: Request) => {
 
   const reportText = JSON.stringify(reportObject);
   const size = new TextEncoder().encode(reportText).length;
-  if (size > 5_242_880) return json({ error: "Report exceeds 5 MiB" }, 413);
+  if (size > 26_214_400) return json({ error: "Report exceeds 25 MiB" }, 413);
 
   const summary = makeSummary(reportObject);
   const { data, error } = await supabase
