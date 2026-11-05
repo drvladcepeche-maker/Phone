@@ -267,27 +267,25 @@ class CleanupActivity : Activity() {
         }
     }
 
-    private fun cmdFor(it: Item): String? {
-        if (!Shizu.validPkg(it.pkg)) return null
-        return when (it.action) {
-            "uninstall" -> if (it.system) "pm uninstall --user 0 " + it.pkg else "pm uninstall " + it.pkg
-            "disable" -> "pm disable-user --user 0 " + it.pkg
-            "cache" -> "pm clear --cache-only " + it.pkg
-            else -> null
-        }
-    }
-
     private fun runShizuku(sel: List<Item>) {
         busy = true; render()
         bg {
-            for (it in sel) {
-                val cmd = cmdFor(it)
-                if (cmd == null) { results.add("✗ " + it.label + ": недопустимое имя пакета"); continue }
-                val r = try { Shizu.exec(cmd) } catch (e: Throwable) { -1 to (e.message ?: "ошибка") }
-                val ok = Shizu.succeeded(r)
-                log(it, ok, r.second.take(120))
-                results.add((if (ok) "✓ " else "✗ ") + actionName(it.action) + ": " + it.label + (if (ok) "" else " (" + r.second.take(80) + ")"))
-                it.checked = false
+            for (item in sel) {
+                val app = apps.firstOrNull { it.pkg == item.pkg }
+                if (app == null || isProtected(app) || !Shizu.validPkg(item.pkg)) {
+                    results.add("✗ " + item.label + ": пакет защищён или недопустим")
+                    continue
+                }
+                val result = try {
+                    Shizu.execPm(item.action, item.pkg, item.system)
+                } catch (e: Throwable) {
+                    -1 to (e.message ?: "ошибка")
+                }
+                val ok = Shizu.succeeded(result)
+                log(item, ok, result.second.take(120))
+                results.add((if (ok) "✓ " else "✗ ") + actionName(item.action) + ": " + item.label +
+                    (if (ok) "" else " (" + result.second.take(80) + ")"))
+                item.checked = false
             }
             runOnUiThread { busy = false; showResults(); reload() }
         }
