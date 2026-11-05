@@ -26,3 +26,5 @@
 
 
 <!-- Rebuild trigger: signed APK verification -->
+
+<!-- Signing verification rebuild trigger -->
