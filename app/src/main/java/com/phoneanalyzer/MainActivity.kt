@@ -70,7 +70,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         val now = collector.hasUsageAccess()
-        if (now != usage) { usage = now; reload() }
+        if (now != usage) { usage = now; reload() } else if (!loading && current == 0) show(0)
     }
 
     private fun askUsageAccess() {
@@ -83,6 +83,16 @@ class MainActivity : Activity() {
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+
+    private fun openExternal(url: String) {
+        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        catch (_: Exception) { toast("Не удалось открыть ссылку") }
+    }
+
+    private fun openShizuku() {
+        val intent = packageManager.getLaunchIntentForPackage(Shizu.PKG)
+        if (intent != null) startActivity(intent) else toast("Shizuku не найден")
+    }
 
     private fun bg(work: () -> Unit) = Thread {
         try { work() } catch (e: Throwable) { runOnUiThread { toast("Ошибка: " + e.message) } }
@@ -147,6 +157,22 @@ class MainActivity : Activity() {
         if (!usage) {
             c.addView(tv("Нет доступа к статистике использования: время работы, трафик и размеры данных недоступны."))
             c.addView(btn("Выдать доступ") { askUsageAccess() })
+        }
+        c.addView(tv("Доступ Shizuku", 16f))
+        when {
+            Shizu.ready() -> c.addView(tv("Подключён. Разрешены безопасные системные операции из вкладки «Очистка»."))
+            !Shizu.installed(this) -> {
+                c.addView(tv("Shizuku не установлен. Без него доступны только системные окна Android."))
+                c.addView(btn("Установить Shizuku") { openExternal("https://shizuku.rikka.app/download/") })
+            }
+            !Shizu.running() -> {
+                c.addView(tv("Shizuku установлен, но не запущен. Запусти его через беспроводную отладку."))
+                c.addView(btn("Открыть Shizuku") { openShizuku() })
+            }
+            else -> {
+                c.addView(tv("Shizuku запущен. Нужно выдать разрешение приложению «Анализ телефона»."))
+                c.addView(btn("Запросить разрешение") { if (!Shizu.request()) toast("Не удалось запросить разрешение Shizuku") })
+            }
         }
         c.addView(tv("Время и трафик берутся из системной статистики; расход батареи и процессора по чужим приложениям Android не раскрывает, поэтому оценки приблизительные.", 12f))
         c.addView(btn("Обновить данные") { reload() })
