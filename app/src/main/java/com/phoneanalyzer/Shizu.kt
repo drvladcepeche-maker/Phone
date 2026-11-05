@@ -6,9 +6,8 @@ import rikka.shizuku.Shizuku
 
 /**
  * Безопасный адаптер Shizuku.
- *
- * Команды не принимаются в виде произвольной shell-строки: только фиксированный
- * набор операций pm и проверенное имя пакета. Это исключает shell injection.
+ * Принимает только фиксированные операции pm и проверенные имена пакетов.
+ * Произвольные shell-строки не исполняются.
  */
 object Shizu {
     const val PKG = "moe.shizuku.privileged.api"
@@ -25,28 +24,32 @@ object Shizu {
     } catch (_: Exception) { false }
 
     fun running(): Boolean = try { Shizuku.pingBinder() } catch (_: Throwable) { false }
-
     fun granted(): Boolean = try {
         Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
     } catch (_: Throwable) { false }
-
     fun ready(): Boolean = running() && granted()
 
-    fun request(): Boolean = try {
-        if (!running()) return false
-        if (granted()) return true
-        Shizuku.requestPermission(REQ)
-        true
-    } catch (_: Throwable) { false }
+    fun request(): Boolean {
+        return try {
+            if (!running()) false
+            else if (granted()) true
+            else { Shizuku.requestPermission(REQ); true }
+        } catch (_: Throwable) { false }
+    }
 
     private val packageNamePattern = Regex("^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$")
-
     fun validPkg(pkg: String): Boolean = packageNamePattern.matches(pkg)
 
-    /**
-     * Исполняются только команды из allowlist. Имя пакета передаётся отдельным
-     * аргументом процесса, никогда не склеивается с shell-командой.
-     */
+    private fun newProcess(args: Array<String>): Process {
+        // Shizuku API exposes this helper as a private static method in 13.1.x.
+        // Reflection is confined here; all arguments are constructed from the allowlist below.
+        val method = Shizuku::class.java.getDeclaredMethod(
+            "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
+        )
+        method.isAccessible = true
+        return method.invoke(null, args, null, null) as Process
+    }
+
     fun execPm(operation: String, pkg: String, system: Boolean = false): Pair<Int, String> {
         require(ready()) { "Shizuku не запущен или разрешение не выдано" }
         require(validPkg(pkg)) { "Недопустимое имя пакета" }
@@ -60,22 +63,17 @@ object Shizu {
             else -> throw IllegalArgumentException("Операция не разрешена")
         }
 
-        val process = Shizuku.newProcess(args, null, null)
+        val process = newProcess(args)
         val stdout = StringBuilder()
         val stderr = StringBuilder()
-        val outThread = Thread {
-            process.inputStream.bufferedReader().use { stdout.append(it.readText()) }
-        }
-        val errThread = Thread {
-            process.errorStream.bufferedReader().use { stderr.append(it.readText()) }
-        }
+        val outThread = Thread { process.inputStream.bufferedReader().use { stdout.append(it.readText()) } }
+        val errThread = Thread { process.errorStream.bufferedReader().use { stderr.append(it.readText()) } }
         outThread.start()
         errThread.start()
         val code = process.waitFor()
         outThread.join(5000)
         errThread.join(5000)
-        val output = (stdout.toString() + "\n" + stderr.toString()).trim().take(8000)
-        return code to output
+        return code to (stdout.toString() + "\n" + stderr.toString()).trim().take(8000)
     }
 
     fun succeeded(result: Pair<Int, String>): Boolean =
