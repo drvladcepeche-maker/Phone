@@ -5,3 +5,16 @@ Android-приложение (Kotlin): сводка устройства, спи
 отчёт в JSON и текст, необязательная отправка отчёта в папку `reports/` этого репозитория.
 
 APK: Actions → Build APK → артефакт `phone-analyzer-apk`.
+
+
+## Обновления и подпись
+
+Идентификатор приложения остаётся com.phoneanalyzer, версия повышена до 0.2.1 (versionCode 2). Workflow собирает debug APK всегда и release APK при наличии стабильного keystore.
+
+Для стабильной подписи настройте секреты репозитория PHONE_KEYSTORE_BASE64, PHONE_KEYSTORE_PASSWORD, PHONE_KEY_ALIAS и PHONE_KEY_PASSWORD. Workflow также проверяет общие секреты ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS и ANDROID_KEY_PASSWORD.
+
+Важно: предыдущие APK были собраны как debug без постоянного keystore. Подписи разных GitHub runner не совпадают, поэтому новая сборка не может гарантированно обновить старую установку поверх. Для обновления без удаления нужен исходный keystore от установленной версии. Если он утрачен, Android потребует удалить старую версию и установить новую; это может удалить локальные снимки и настройки.
+
+## Серверный мост
+
+Приложение использует закрытый Supabase Edge Function phone-analyzer и существующую регистрацию устройства из Termux bridge проекта contacts. Токен устройства хранится в приложении с шифрованием Android Keystore. Передача отчёта выключена по умолчанию и выполняется только после подтверждения. Сервер хранит отчёты в таблице phone_analyzer_reports с RLS и закрытым доступом для клиентских ролей.
