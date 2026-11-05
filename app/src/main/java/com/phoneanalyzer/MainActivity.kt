@@ -358,6 +358,10 @@ class MainActivity : Activity() {
     }
 
     private fun schedule(on: Boolean) {
+        if (on && android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 301)
+        }
         val js = getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
         if (on) js.schedule(JobInfo.Builder(1, ComponentName(this, SnapshotJob::class.java))
             .setPeriodic(24L * 3600 * 1000).build())
