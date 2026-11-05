@@ -18,7 +18,7 @@
 - `PHONE_KEY_ALIAS` — alias ключа;
 - `PHONE_KEY_PASSWORD` — пароль ключа.
 
-Не помещайте keystore или пароли в Git. После настройки секретов workflow создаёт подписанный APK `PhoneAnalyzer-2-v1.0.0.apk` в артефакте `PhoneAnalyzer-2-v1.0.0`. Сохраняйте исходный keystore в безопасном месте.
+Не помещайте keystore или пароли в Git. После настройки секретов workflow создаёт подписанный APK `PhoneAnalyzer-2-v1.1.0.apk` в артефакте `PhoneAnalyzer-2-v1.1.0`. Сохраняйте исходный keystore в безопасном месте.
 
 ## Серверный мост
 
