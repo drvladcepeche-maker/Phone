@@ -282,9 +282,13 @@ class MainActivity : Activity() {
     private fun reportView(): View {
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
         val c = col()
-        c.addView(tv("Отчёт содержит сводку устройства и данные по приложениям. Он не содержит сообщений, звонков, контактов, файлов, истории браузера, местоположения и идентификаторов устройства.", 13f))
-        c.addView(btn("Сохранить отчёт (JSON)") { withReport { json, _ -> pendingText = json; createDoc("report.json", "application/json", reqJson) } })
-        c.addView(btn("Сохранить отчёт (текст)") { withReport { _, txt -> pendingText = txt; createDoc("report.txt", "text/plain", reqTxt) } })
+        c.addView(tv("Отчёт содержит характеристики устройства и сведения об установленных приложениях: размеры, разрешения, время использования и трафик. Контакты, сообщения, звонки, личные файлы и история браузера не собираются.", 13f))
+        c.addView(btn("Сохранить отчёт (JSON)") {
+            withReport { json, _ -> pendingText = json; createDoc("phone-report.json", "application/json", reqJson) }
+        })
+        c.addView(btn("Сохранить отчёт (текст)") {
+            withReport { _, txt -> pendingText = txt; createDoc("phone-report.txt", "text/plain", reqTxt) }
+        })
         c.addView(btn("Поделиться текстом") {
             withReport { _, txt ->
                 startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
@@ -292,28 +296,60 @@ class MainActivity : Activity() {
                 }, "Поделиться отчётом"))
             }
         })
-        c.addView(tv("Отправка в репозиторий (по умолчанию выключена)", 15f))
-        val enable = CheckBox(this).apply { text = "Включить отправку отчёта"; isChecked = prefs.getBoolean("upload", false) }
-        val repo = EditText(this).apply { hint = "Репозиторий (владелец/имя)"; setSingleLine(); setText(prefs.getString("repo", "drvladcepeche-maker/Phone")) }
+
+        c.addView(tv("Серверный мост Supabase", 16f))
+        c.addView(tv("Отправка выключена по умолчанию. Для подключения используй 64-значный токен устройства из Termux: ~/.config/termux-bridge/device-token. Токен шифруется ключом Android Keystore и не сохраняется открытым текстом.", 12f))
         val token = EditText(this).apply {
-            hint = "GitHub-токен (Contents: Read and write)"; setSingleLine()
+            hint = "Токен устройства (64 hex-символа)"
+            setSingleLine()
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(prefs.getString("token", ""))
+            setText(SecureTokenStore.load(this@MainActivity) ?: "")
         }
-        val daily = CheckBox(this).apply { text = "Делать снимок раз в сутки"; isChecked = prefs.getBoolean("daily", false) }
-        listOf<View>(enable, repo, token, daily).forEach { c.addView(it) }
-        c.addView(btn("Сохранить настройки") {
-            prefs.edit().putBoolean("upload", enable.isChecked).putString("repo", repo.text.toString().trim())
-                .putString("token", token.text.toString().trim()).putBoolean("daily", daily.isChecked).apply()
+        c.addView(token)
+        c.addView(btn("Сохранить токен моста") {
+            try {
+                SecureTokenStore.save(this, token.text.toString())
+                toast("Токен сохранён в Android Keystore")
+            } catch (e: Exception) {
+                toast(e.message ?: "Не удалось сохранить токен")
+            }
+        })
+        c.addView(btn("Удалить токен моста") {
+            SecureTokenStore.clear(this)
+            token.setText("")
+            toast("Подключение удалено с этого устройства")
+        })
+        c.addView(btn("Проверить подключение к серверу") {
+            if (SecureTokenStore.load(this).isNullOrBlank()) {
+                toast("Сначала сохраните токен моста")
+                return@btn
+            }
+            toast("Проверка подключения…")
+            bg {
+                val result = ServerBridge.ping(this)
+                runOnUiThread {
+                    toast(if (result.optBoolean("ok")) "Мост подключён: " + result.optString("device") else "Сервер не подтвердил подключение")
+                }
+            }
+        })
+        c.addView(btn("Отправить отчёт на сервер") {
+            if (SecureTokenStore.load(this).isNullOrBlank()) {
+                toast("Сначала сохраните токен моста")
+                return@btn
+            }
+            withReport { json, _ -> confirmUpload(json) }
+        })
+
+        c.addView(tv("Фоновые снимки", 16f))
+        val daily = CheckBox(this).apply {
+            text = "Делать снимок раз в сутки"
+            isChecked = prefs.getBoolean("daily", false)
+        }
+        c.addView(daily)
+        c.addView(btn("Сохранить настройки снимков") {
+            prefs.edit().putBoolean("daily", daily.isChecked).apply()
             schedule(daily.isChecked)
             toast("Настройки сохранены")
-        })
-        c.addView(btn("Отправить отчёт в репозиторий") {
-            if (!prefs.getBoolean("upload", false)) { toast("Включите отправку и сохраните настройки"); return@btn }
-            val t = prefs.getString("token", "") ?: ""
-            val r = prefs.getString("repo", "") ?: ""
-            if (t.isEmpty() || r.isEmpty()) { toast("Укажите репозиторий и токен"); return@btn }
-            withReport { json, _ -> confirmUpload(t, r, json) }
         })
         return c
     }
@@ -334,18 +370,31 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun confirmUpload(token: String, repo: String, json: String) {
-        val name = "report-" + Fmt.stamp(System.currentTimeMillis()) + ".json.gz"
-        val data = Reporter.gzip(json)
-        AlertDialog.Builder(this).setTitle("Отправить отчёт?")
-            .setMessage("Приложений: " + apps.size + "\nРазмер: " + Fmt.bytes(json.toByteArray(Charsets.UTF_8).size.toLong()) + " (в архиве gzip: " + Fmt.bytes(data.size.toLong()) + ")" +
-                "\nРазделы: сводка устройства; по каждому приложению — версия, размеры, время на экране, трафик по дням, службы, автозапуск, разрешения, категория и причина." +
-                "\n\nКуда: " + repo + "/reports/" + name + "\nТокен в отчёт не входит. Файл можно сначала сохранить и просмотреть.")
+    private fun confirmUpload(json: String) {
+        val reportId = java.util.UUID.randomUUID().toString()
+        val size = json.toByteArray(Charsets.UTF_8).size
+        AlertDialog.Builder(this).setTitle("Отправить отчёт на сервер?")
+            .setMessage(
+                "Приложений в отчёте: ${apps.size}\nРазмер: ${Fmt.bytes(size.toLong())}\n\n" +
+                "Будут переданы сводка устройства и сведения об установленных приложениях, их разрешениях, размерах, времени использования и сетевом трафике. " +
+                "Контакты, сообщения, звонки, файлы и местоположение не входят в отчёт.\n\n" +
+                "Отчёт будет сохранён в закрытой таблице Supabase для последующей серверной обработки. Автоматическая отправка не включается."
+            )
             .setPositiveButton("Отправить") { _, _ ->
-                toast("Отправка…")
+                toast("Отправка отчёта…")
                 bg {
-                    val url = Reporter.upload(token, repo, name, data) { n -> runOnUiThread { toast("Повтор, попытка " + n + " из 3…") } }
-                    runOnUiThread { AlertDialog.Builder(this).setTitle("Отправлено").setMessage(url).setPositiveButton("Закрыть", null).show() }
+                    val result = ServerBridge.uploadReport(this, json, reportId)
+                    val summary = result.optJSONObject("summary")
+                    runOnUiThread {
+                        AlertDialog.Builder(this)
+                            .setTitle("Отчёт принят сервером")
+                            .setMessage(
+                                "ID: " + result.optString("report_id") + "\n" +
+                                "Приложений обработано: " + (summary?.optInt("appCount") ?: apps.size) + "\n" +
+                                "Устройство: " + (summary?.optString("deviceModel") ?: device.optString("model"))
+                            )
+                            .setPositiveButton("Закрыть", null).show()
+                    }
                 }
             }
             .setNegativeButton("Отмена", null).show()
