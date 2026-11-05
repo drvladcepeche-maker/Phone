@@ -148,7 +148,11 @@ class MainActivity : Activity() {
         val d = device
         val user = apps.count { !it.system }
         val sb = StringBuilder()
-        sb.append(d.optString("model")).append("\nAndroid ").append(d.optString("android")).append(", патч ").append(d.optString("securityPatch")).append("\n\n")
+        sb.append(d.optString("model")).append("\nAndroid ").append(d.optString("android")).append(", патч ").append(d.optString("securityPatch")).append("\n")
+        sb.append("Паспорт: ").append(d.optString("manufacturer")).append(" / ").append(d.optString("device")).append(" / ").append(d.optString("hardware")).append("\n")
+        sb.append("Сборка: ").append(d.optString("fingerprint")).append("\n")
+        sb.append("Экран: ").append(d.optInt("screenWidthPx")).append("x").append(d.optInt("screenHeightPx")).append(" px, ").append(d.optInt("densityDpi")).append(" dpi\n")
+        sb.append("ABI: ").append(d.optJSONArray("supportedAbis")?.let { ar -> (0 until ar.length()).joinToString(", ") { ar.getString(it) } } ?: "н/д").append("\n\n")
         sb.append("ОЗУ: свободно ").append(Fmt.bytes(d.optLong("ramAvailable"))).append(" из ").append(Fmt.bytes(d.optLong("ramTotal")))
             .append(if (d.optBoolean("ramLow")) "  (мало памяти!)" else "").append("\n")
         sb.append("Хранилище: свободно ").append(Fmt.bytes(d.optLong("storageFree"))).append(" из ").append(Fmt.bytes(d.optLong("storageTotal"))).append("\n")
@@ -272,9 +276,10 @@ class MainActivity : Activity() {
         val snaps = Snapshots.list(this)
         c.addView(btn("Сделать снимок сейчас") {
             if (apps.isEmpty()) { toast("Данные ещё не собраны"); return@btn }
-            Snapshots.save(this, apps); toast("Снимок сохранён"); show(2)
+            Snapshots.save(this, apps, device); toast("Снимок паспорта устройства сохранён"); show(2)
         })
-        c.addView(tv("Снимков сохранено: " + snaps.size + " (хранятся последние 30)."))
+        c.addView(tv("Снимков паспорта устройства сохранено: " + snaps.size + " (хранятся последние 30)."))
+        c.addView(tv("Снимок включает параметры сборки Android, аппаратную платформу, экран, приложения, версии, разрешения, трафик и специальные доступы. IMEI, серийный номер, Android ID и координаты GPS не собираются."))
         if (snaps.size < 2) c.addView(tv("Для сравнения нужно минимум два снимка."))
         else c.addView(tv(Snapshots.diff(snaps[snaps.size - 2], snaps.last())))
         return c
