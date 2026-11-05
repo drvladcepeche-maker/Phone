@@ -13,8 +13,10 @@ class SnapshotJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         Thread {
             try {
-                val apps = Collector(applicationContext).collect()
-                Snapshots.save(applicationContext, apps)
+                val collector = Collector(applicationContext)
+                val device = collector.device()
+                val apps = collector.collect()
+                Snapshots.save(applicationContext, apps, device)
                 notifyResult(4101, "Анализ телефона", "Снимок сохранён. Приложений: ${apps.size}.")
             } catch (e: Exception) {
                 notifyResult(4102, "Анализ телефона: ошибка", e.message ?: "Не удалось сделать снимок.")
