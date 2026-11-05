@@ -1,6 +1,11 @@
 package com.phoneanalyzer
 
+import android.Manifest
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
 import android.app.AlertDialog
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
@@ -214,6 +219,7 @@ class MainActivity : Activity() {
                     val found = PrivacyAudit.scan(this)
                     runOnUiThread {
                         privacyEvents = found
+                        notifyPrivacyFindings(found)
                         show(5)
                         toast("Записей AppOps: ${found.size}")
                     }
@@ -249,6 +255,40 @@ class MainActivity : Activity() {
             c.addView(tv("${app.label}: ${Fmt.bytes(bytes)}", 13f))
         }
         return c
+    }
+
+    private fun notifyPrivacyFindings(events: List<PrivacyEvent>) {
+        val now = System.currentTimeMillis()
+        val background = events.filter {
+            !it.rejected && it.background && now - it.timestamp < 24L * 3600 * 1000
+        }
+        if (background.isEmpty()) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 302)
+            toast("Обнаружены фоновые обращения к чувствительным ресурсам. Разреши уведомления, чтобы получать предупреждения.")
+            return
+        }
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = "phone_analyzer_privacy"
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(
+                NotificationChannel(channel, "Защита приватности", NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
+        val names = background.map { it.appLabel }.distinct().take(3).joinToString(", ")
+        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, channel)
+                      else Notification.Builder(this)
+        val notification = builder
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle("Фоновый доступ к чувствительным ресурсам")
+            .setContentText("${background.size} событий: $names")
+            .setStyle(Notification.BigTextStyle().bigText(
+                background.take(8).joinToString("\\n") { "${it.appLabel}: ${it.resource} — ${PrivacyAudit.formatTime(it.timestamp)}" }
+            ))
+            .setAutoCancel(true)
+            .build()
+        try { manager.notify(4201, notification) } catch (_: SecurityException) { }
     }
 
     // ---------- Приложения ----------
