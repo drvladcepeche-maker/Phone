@@ -4,40 +4,83 @@ import android.content.Context
 import android.content.pm.PackageManager
 import rikka.shizuku.Shizuku
 
-/** Обёртка над Shizuku: выполнение команд pm с правами adb (без root). */
+/**
+ * Безопасный адаптер Shizuku.
+ *
+ * Команды не принимаются в виде произвольной shell-строки: только фиксированный
+ * набор операций pm и проверенное имя пакета. Это исключает shell injection.
+ */
 object Shizu {
     const val PKG = "moe.shizuku.privileged.api"
     const val REQ = 1001
 
-    fun installed(ctx: Context): Boolean =
-        try { ctx.packageManager.getPackageInfo(PKG, 0); true } catch (e: Exception) { false }
+    fun installed(ctx: Context): Boolean = try {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            ctx.packageManager.getPackageInfo(PKG, PackageManager.PackageInfoFlags.of(0L))
+        } else {
+            @Suppress("DEPRECATION")
+            ctx.packageManager.getPackageInfo(PKG, 0)
+        }
+        true
+    } catch (_: Exception) { false }
 
-    fun running(): Boolean = try { Shizuku.pingBinder() } catch (e: Throwable) { false }
+    fun running(): Boolean = try { Shizuku.pingBinder() } catch (_: Throwable) { false }
 
-    fun granted(): Boolean =
-        try { Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED } catch (e: Throwable) { false }
+    fun granted(): Boolean = try {
+        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+    } catch (_: Throwable) { false }
 
     fun ready(): Boolean = running() && granted()
 
-    fun request() { try { Shizuku.requestPermission(REQ) } catch (e: Throwable) { } }
+    fun request(): Boolean = try {
+        if (!running()) return false
+        if (granted()) return true
+        Shizuku.requestPermission(REQ)
+        true
+    } catch (_: Throwable) { false }
 
-    private val okName = Regex("^[A-Za-z0-9_.]+$")
+    private val packageNamePattern = Regex("^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$")
 
-    /** Имя пакета должно состоять только из безопасных символов, иначе команда не выполняется. */
-    fun validPkg(p: String): Boolean = p.isNotEmpty() && okName.matches(p)
+    fun validPkg(pkg: String): Boolean = packageNamePattern.matches(pkg)
 
-    /** Выполняет команду оболочки через Shizuku. Возвращает код выхода и вывод. */
-    fun exec(cmd: String): Pair<Int, String> {
-        val m = Shizuku::class.java.getDeclaredMethod(
-            "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
-        )
-        m.isAccessible = true
-        val p = m.invoke(null, arrayOf("sh", "-c", cmd + " 2>&1"), null, null) as Process
-        val out = p.inputStream.bufferedReader().readText()
-        val code = p.waitFor()
-        return code to out.trim()
+    /**
+     * Исполняются только команды из allowlist. Имя пакета передаётся отдельным
+     * аргументом процесса, никогда не склеивается с shell-командой.
+     */
+    fun execPm(operation: String, pkg: String, system: Boolean = false): Pair<Int, String> {
+        require(ready()) { "Shizuku не запущен или разрешение не выдано" }
+        require(validPkg(pkg)) { "Недопустимое имя пакета" }
+
+        val args = when (operation) {
+            "disable" -> arrayOf("pm", "disable-user", "--user", "0", pkg)
+            "enable" -> arrayOf("pm", "enable", "--user", "0", pkg)
+            "cache" -> arrayOf("pm", "clear", "--cache-only", pkg)
+            "uninstall" -> if (system) arrayOf("pm", "uninstall", "--user", "0", pkg)
+                           else arrayOf("pm", "uninstall", pkg)
+            else -> throw IllegalArgumentException("Операция не разрешена")
+        }
+
+        val process = Shizuku.newProcess(args, null, null)
+        val stdout = StringBuilder()
+        val stderr = StringBuilder()
+        val outThread = Thread {
+            process.inputStream.bufferedReader().use { stdout.append(it.readText()) }
+        }
+        val errThread = Thread {
+            process.errorStream.bufferedReader().use { stderr.append(it.readText()) }
+        }
+        outThread.start()
+        errThread.start()
+        val code = process.waitFor()
+        outThread.join(5000)
+        errThread.join(5000)
+        val output = (stdout.toString() + "\n" + stderr.toString()).trim().take(8000)
+        return code to output
     }
 
-    fun succeeded(r: Pair<Int, String>): Boolean =
-        r.first == 0 && !r.second.contains("Failure") && !r.second.contains("Error") && !r.second.contains("Exception")
+    fun succeeded(result: Pair<Int, String>): Boolean =
+        result.first == 0 &&
+            !result.second.contains("Failure", ignoreCase = true) &&
+            !result.second.contains("Error", ignoreCase = true) &&
+            !result.second.contains("Exception", ignoreCase = true)
 }
