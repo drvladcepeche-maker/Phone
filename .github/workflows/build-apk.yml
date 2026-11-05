@@ -48,9 +48,19 @@ jobs:
             fi
           done
           KEYSTORE_PATH="$RUNNER_TEMP/phone-signing.p12"
-          printf '%s' "$PHONE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
-          test -s "$KEYSTORE_PATH"
-          keytool -list -keystore "$KEYSTORE_PATH" -storetype PKCS12 -storepass "$PHONE_KEYSTORE_PASSWORD" -alias "$PHONE_KEY_ALIAS" >/dev/null
+          if ! printf '%s' "$PHONE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"; then
+            echo "::error::PHONE_KEYSTORE_BASE64 is not valid Base64."
+            exit 1
+          fi
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "::error::Decoded keystore file is empty."
+            exit 1
+          fi
+          if ! KEYTOOL_OUTPUT=$(keytool -list -keystore "$KEYSTORE_PATH" -storetype PKCS12 -storepass "$PHONE_KEYSTORE_PASSWORD" -alias "$PHONE_KEY_ALIAS" 2>&1); then
+            echo "::error::Keystore validation failed. Safe keytool diagnostic follows:"
+            printf '%s\n' "$KEYTOOL_OUTPUT"
+            exit 1
+          fi
           {
             echo "PHONE_KEYSTORE_PATH=$KEYSTORE_PATH"
             echo "PHONE_KEYSTORE_PASSWORD=$PHONE_KEYSTORE_PASSWORD"
