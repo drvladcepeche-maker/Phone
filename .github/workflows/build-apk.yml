@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      PHONE_KEYSTORE_BASE64: ${{ secrets.PHONE_KEYSTORE_BASE64 }}
-      PHONE_KEYSTORE_PASSWORD: ${{ secrets.PHONE_KEYSTORE_PASSWORD }}
-      PHONE_KEY_ALIAS: ${{ secrets.PHONE_KEY_ALIAS }}
-      PHONE_KEY_PASSWORD: ${{ secrets.PHONE_KEY_PASSWORD }}
+      PHONE_KEYSTORE_BASE64: ${{ secrets.PHONE_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+      PHONE_KEYSTORE_PASSWORD: ${{ secrets.PHONE_KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+      PHONE_KEY_ALIAS: ${{ secrets.PHONE_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
+      PHONE_KEY_PASSWORD: ${{ secrets.PHONE_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
