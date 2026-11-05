@@ -47,6 +47,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Remove legacy GitHub credentials that older versions stored in plain preferences.
+        getSharedPreferences("settings", Context.MODE_PRIVATE).edit()
+            .remove("token").remove("repo").remove("upload").apply()
         collector = Collector(applicationContext)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -281,8 +284,6 @@ class MainActivity : Activity() {
 
     private fun reportView(): View {
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-        // Remove legacy GitHub credentials previously stored in plain preferences.
-        prefs.edit().remove("token").remove("repo").remove("upload").apply()
         val c = col()
         c.addView(tv("Отчёт содержит характеристики устройства и сведения об установленных приложениях: размеры, разрешения, время использования и трафик. Контакты, сообщения, звонки, личные файлы и история браузера не собираются.", 13f))
         c.addView(btn("Сохранить отчёт (JSON)") {
