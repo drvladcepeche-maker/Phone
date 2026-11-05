@@ -75,13 +75,13 @@ jobs:
         run: gradle assembleRelease --no-daemon
       - name: Rename release APK
         if: steps.signing.outputs.configured == 'true'
-        run: cp app/build/outputs/apk/release/app-release.apk PhoneAnalyzer-2-v1.1.0.apk
+        run: cp app/build/outputs/apk/release/app-release.apk PhoneAnalyzer-2-v1.2.0.apk
       - name: Upload signed release APK
         if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: PhoneAnalyzer-2-v1.1.0
-          path: PhoneAnalyzer-2-v1.1.0.apk
+          name: PhoneAnalyzer-2-v1.2.0
+          path: PhoneAnalyzer-2-v1.2.0.apk
           if-no-files-found: error
       - name: Upload debug validation APK
         if: steps.signing.outputs.configured != 'true'
