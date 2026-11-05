@@ -78,6 +78,9 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("privacy_monitor", false) && Shizu.ready()) {
+            schedulePrivacyMonitor(true)
+        }
         val now = collector.hasUsageAccess()
         if (now != usage) { usage = now; reload() } else if (!loading && current == 0) show(0)
     }
@@ -203,6 +206,30 @@ class MainActivity : Activity() {
             "Отметка «фон» означает, что система зарегистрировала операцию в фоновом состоянии. Это повод проверить приложение, но не доказательство передачи данных третьим лицам.",
             13f
         ))
+        val privacyPrefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val automatic = CheckBox(this).apply {
+            text = "Автоматическая проверка каждые 15 минут (интервал может увеличиваться по решению Android)"
+            isChecked = privacyPrefs.getBoolean("privacy_monitor", false)
+        }
+        c.addView(automatic)
+        c.addView(btn("Сохранить режим мониторинга") {
+            if (automatic.isChecked && !Shizu.ready()) {
+                toast("Для фоновой проверки нужен запущенный Shizuku с разрешением.")
+                return@btn
+            }
+            if (automatic.isChecked && Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 302)
+                toast("Разреши уведомления и нажми сохранение ещё раз.")
+                return@btn
+            }
+            privacyPrefs.edit()
+                .putBoolean("privacy_monitor", automatic.isChecked)
+                .putLong("privacy_last_scan", System.currentTimeMillis())
+                .apply()
+            schedulePrivacyMonitor(automatic.isChecked)
+            toast(if (automatic.isChecked) "Фоновый мониторинг включён" else "Фоновый мониторинг выключен")
+        })
         if (!Shizu.ready()) {
             c.addView(tv("Для чтения системного журнала нужен Shizuku. Установи и запусти его, затем выдай разрешение приложению."))
             if (!Shizu.installed(this)) {
@@ -465,6 +492,18 @@ class MainActivity : Activity() {
             toast("Настройки сохранены")
         })
         return c
+    }
+
+    private fun schedulePrivacyMonitor(enabled: Boolean) {
+        val js = getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+        if (!enabled) {
+            js.cancel(2)
+            return
+        }
+        val request = JobInfo.Builder(2, ComponentName(this, PrivacyScanJob::class.java))
+            .setPeriodic(15L * 60 * 1000)
+            .build()
+        js.schedule(request)
     }
 
     private fun schedule(on: Boolean) {
