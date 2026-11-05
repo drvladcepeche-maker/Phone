@@ -2,9 +2,11 @@ package com.phoneanalyzer
 
 import android.content.Context
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.GZIPOutputStream
 
 /** HTTPS-клиент частного серверного шлюза анализа телефона. */
 object ServerBridge {
@@ -26,8 +28,12 @@ object ServerBridge {
     }
 
     private fun post(token: String, payload: JSONObject): JSONObject {
-        val bytes = payload.toString().toByteArray(Charsets.UTF_8)
-        if (bytes.size > 5 * 1024 * 1024) throw IOException("Отчёт больше 5 МБ")
+        val raw = payload.toString().toByteArray(Charsets.UTF_8)
+        if (raw.size > 25 * 1024 * 1024) throw IOException("Отчёт больше 25 МБ")
+        val compressed = ByteArrayOutputStream().also { buffer ->
+            GZIPOutputStream(buffer).use { it.write(raw) }
+        }.toByteArray()
+        if (compressed.size > 5 * 1024 * 1024) throw IOException("Сжатый отчёт больше 5 МБ")
         var last: IOException? = null
         for (attempt in 1..3) {
             var connection: HttpURLConnection? = null
@@ -37,13 +43,14 @@ object ServerBridge {
                     connectTimeout = 20000
                     readTimeout = 120000
                     doOutput = true
-                    setFixedLengthStreamingMode(bytes.size)
+                    setFixedLengthStreamingMode(compressed.size)
                     setRequestProperty("Authorization", "Bearer " + token)
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    setRequestProperty("Content-Encoding", "gzip")
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("Cache-Control", "no-store")
                 }
-                connection.outputStream.use { it.write(bytes) }
+                connection.outputStream.use { it.write(compressed) }
                 val code = connection.responseCode
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val response = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: "{}"
