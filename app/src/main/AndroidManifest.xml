@@ -29,5 +29,8 @@
         <service android:name=".SnapshotJob"
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false" />
+        <service android:name=".PrivacyScanJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
     </application>
 </manifest>
