@@ -25,6 +25,4 @@
 Приложение использует закрытый Supabase Edge Function `phone-analyzer` и существующую регистрацию устройства из Termux bridge проекта contacts. Токен устройства хранится в приложении с шифрованием Android Keystore. Передача отчёта выключена по умолчанию и выполняется только после подтверждения. Сервер хранит отчёты в таблице `phone_analyzer_reports` с RLS и закрытым доступом для клиентских ролей.
 
 
-<!-- Rebuild trigger: signed APK verification -->
-
-<!-- Signing verification rebuild trigger -->
+<!-- Rebuild trigger: verify refreshed signing secrets -->
