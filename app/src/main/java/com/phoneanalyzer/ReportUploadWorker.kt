@@ -30,6 +30,7 @@ class ReportUploadWorker(context: Context, params: WorkerParameters) : Worker(co
             Result.failure()
         } catch (e: IOException) {
             if (runAttemptCount >= 5) {
+                file.delete()
                 notifyResult(4202, "Ошибка отправки отчёта", e.message ?: "Не удалось связаться с сервером.")
                 Result.failure()
             } else {
