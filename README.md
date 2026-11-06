@@ -4,8 +4,8 @@
 
 - Новый идентификатор: `com.phoneanalyzer.next`
 - Имя на телефоне: «Анализ телефона 2»
-- Текущая версия: 1.2.0 (versionCode 3)
-- APK: `PhoneAnalyzer-2-v1.2.0.apk`
+- Текущая версия: 1.3.0 (versionCode 4)
+- APK: `PhoneAnalyzer-2-v1.3.0.apk`
 
 Дальнейшие обновления должны сохранять `applicationId = "com.phoneanalyzer.next"` и использовать один постоянный ключ подписи. Не устанавливайте debug-validation APK как основную версию: он предназначен только для проверки сборки и может быть подписан временным ключом GitHub runner.
 
@@ -18,7 +18,7 @@
 - `PHONE_KEY_ALIAS` — alias ключа;
 - `PHONE_KEY_PASSWORD` — пароль ключа.
 
-Не помещайте keystore или пароли в Git. После настройки секретов workflow создаёт подписанный APK `PhoneAnalyzer-2-v1.2.0.apk` в артефакте `PhoneAnalyzer-2-v1.2.0`. Сохраняйте исходный keystore в безопасном месте.
+Не помещайте keystore или пароли в Git. После настройки секретов workflow создаёт подписанный APK `PhoneAnalyzer-2-v1.3.0.apk` в артефакте `PhoneAnalyzer-2-v1.3.0`. Сохраняйте исходный keystore в безопасном месте.
 
 ## Серверный мост
 
