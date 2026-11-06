@@ -16,6 +16,9 @@ class AdWindowMonitorService : AccessibilityService() {
             event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
         val sourcePkg = event.packageName?.toString()?.trim().orEmpty()
         if (sourcePkg.isBlank() || sourcePkg == packageName || sourcePkg in ignoredPackages) return
+        if (!Shizu.ready()) return
+        val (appOpCode, appOp) = try { Shizu.execAppOpsGetOverlay(sourcePkg) } catch (_: Exception) { return }
+        if (appOpCode != 0 || !appOp.contains("allow", ignoreCase = true)) return
         val prefs = getSharedPreferences("ad_monitor", MODE_PRIVATE)
         val now = System.currentTimeMillis()
         val previousPkg = prefs.getString("last_window_package", null)
