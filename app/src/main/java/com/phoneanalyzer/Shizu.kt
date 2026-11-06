@@ -106,44 +106,6 @@ object Shizu {
         return process.waitFor() to output.trim().take(2000)
     }
 
-    fun readPrivateDnsSettings(): Pair<Int, String> {
-        require(ready()) { "Shizuku не запущен или разрешение не выдано" }
-        val values = ArrayList<String>()
-        for (key in arrayOf("private_dns_mode", "private_dns_specifier")) {
-            val process = newProcess(arrayOf("settings", "get", "global", key))
-            val out = process.inputStream.bufferedReader().use { it.readText() }
-            val err = process.errorStream.bufferedReader().use { it.readText() }
-            val code = process.waitFor()
-            if (code != 0) return code to err.take(1000)
-            values.add(out.trim().ifBlank { "null" })
-        }
-        return 0 to values.joinToString("\\n")
-    }
-
-    fun setPrivateDns(mode: String, hostname: String?): Pair<Int, String> {
-        require(ready()) { "Shizuku не запущен или разрешение не выдано" }
-        require(mode in setOf("off", "opportunistic", "hostname")) { "Недопустимый режим Private DNS" }
-        if (mode == "hostname") require(hostname != null && Regex("^[A-Za-z0-9.-]{1,253}$").matches(hostname)) {
-            "Недопустимое имя DNS-сервера"
-        }
-        val commands = mutableListOf<Array<String>>()
-        if (mode == "hostname") {
-            commands.add(arrayOf("settings", "put", "global", "private_dns_specifier", hostname!!))
-        } else {
-            commands.add(arrayOf("settings", "delete", "global", "private_dns_specifier"))
-        }
-        commands.add(arrayOf("settings", "put", "global", "private_dns_mode", mode))
-        val outputs = StringBuilder()
-        for (args in commands) {
-            val process = newProcess(args)
-            val out = process.inputStream.bufferedReader().use { it.readText() }
-            val err = process.errorStream.bufferedReader().use { it.readText() }
-            val code = process.waitFor()
-            outputs.append(out).append(err)
-            if (code != 0) return code to outputs.toString().take(2000)
-        }
-        return 0 to outputs.toString().trim()
-    }
     fun execAppOpsDump(): Pair<Int, String> {
         require(ready()) { "Shizuku не запущен или разрешение не выдано" }
         val process = newProcess(arrayOf("dumpsys", "appops"))
