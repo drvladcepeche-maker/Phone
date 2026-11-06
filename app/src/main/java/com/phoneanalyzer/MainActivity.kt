@@ -290,7 +290,9 @@ class MainActivity : Activity() {
             for (idx in adRows.length() - 1 downTo 0) {
                 val item = adRows.optJSONObject(idx) ?: continue
                 val source = item.optString("source")
+                val sourceLabel = item.optString("sourceLabel", source)
                 val previous = item.optString("previous")
+                val previousLabel = item.optString("previousLabel", previous)
                 val time = PrivacyAudit.formatTime(item.optLong("time"))
                 c.addView(tv("$time\nОкно: $source\nПеред ним: $previous\nКласс окна: ${item.optString("class")}", 12f))
                 if (Shizu.ready() && source.isNotBlank() && Shizu.validPkg(source)) {
