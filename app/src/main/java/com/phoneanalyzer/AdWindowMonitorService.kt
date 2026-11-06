@@ -43,7 +43,9 @@ class AdWindowMonitorService : AccessibilityService() {
                 put("key", key)
                 put("time", now)
                 put("source", sourcePkg)
+                put("sourceLabel", appLabel(sourcePkg))
                 put("previous", previousPkg)
+                put("previousLabel", appLabel(previousPkg))
                 put("class", eventClass)
                 put("event", event.eventType)
                 put("review", true)
@@ -53,6 +55,16 @@ class AdWindowMonitorService : AccessibilityService() {
             AdMonitorNotifications.notify(this, sourcePkg, previousPkg)
         }
     }
+
+    private fun appLabel(pkg: String): String = try {
+        val info = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            packageManager.getApplicationInfo(pkg, android.content.pm.PackageManager.ApplicationInfoFlags.of(0L))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getApplicationInfo(pkg, 0)
+        }
+        packageManager.getApplicationLabel(info).toString().take(100)
+    } catch (_: Exception) { pkg }
 
     override fun onInterrupt() = Unit
 
