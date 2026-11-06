@@ -87,6 +87,15 @@ object Shizu {
      * no caller-provided shell text or package arguments are accepted.
      */
 
+    fun execAppOpsGetOverlay(pkg: String): Pair<Int, String> {
+        require(ready()) { "Shizuku не запущен или разрешение не выдано" }
+        require(validPkg(pkg)) { "Недопустимое имя пакета" }
+        val process = newProcess(arrayOf("appops", "get", "--user", "0", pkg, "SYSTEM_ALERT_WINDOW"))
+        val out = process.inputStream.bufferedReader().use { it.readText() }
+        val err = process.errorStream.bufferedReader().use { it.readText() }
+        return process.waitFor() to (out + err).trim().take(2000)
+    }
+
     fun execAppOpsSetOverlay(pkg: String, mode: String): Pair<Int, String> {
         require(ready()) { "Shizuku не запущен или разрешение не выдано" }
         require(validPkg(pkg)) { "Недопустимое имя пакета" }
@@ -117,12 +126,13 @@ object Shizu {
         if (mode == "hostname") require(hostname != null && Regex("^[A-Za-z0-9.-]{1,253}$").matches(hostname)) {
             "Недопустимое имя DNS-сервера"
         }
-        val commands = mutableListOf(arrayOf("settings", "put", "global", "private_dns_mode", mode))
+        val commands = mutableListOf<Array<String>>()
         if (mode == "hostname") {
             commands.add(arrayOf("settings", "put", "global", "private_dns_specifier", hostname!!))
         } else {
             commands.add(arrayOf("settings", "delete", "global", "private_dns_specifier"))
         }
+        commands.add(arrayOf("settings", "put", "global", "private_dns_mode", mode))
         val outputs = StringBuilder()
         for (args in commands) {
             val process = newProcess(args)
