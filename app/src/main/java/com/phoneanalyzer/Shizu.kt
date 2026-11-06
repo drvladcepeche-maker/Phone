@@ -86,6 +86,49 @@ object Shizu {
      * Read-only system AppOps history. This is intentionally a fixed command:
      * no caller-provided shell text or package arguments are accepted.
      */
+
+    fun execAppOpsSetOverlay(pkg: String, mode: String): Pair<Int, String> {
+        require(ready()) { "Shizuku не запущен или разрешение не выдано" }
+        require(validPkg(pkg)) { "Недопустимое имя пакета" }
+        require(mode == "ignore" || mode == "default") { "Разрешён только режим ignore/default" }
+        val process = newProcess(arrayOf("appops", "set", "--user", "0", pkg, "SYSTEM_ALERT_WINDOW", mode))
+        val output = process.inputStream.bufferedReader().use { it.readText() } +
+            process.errorStream.bufferedReader().use { it.readText() }
+        return process.waitFor() to output.trim().take(2000)
+    }
+
+    fun readPrivateDnsSettings(): Pair<Int, String> {
+        require(ready()) { "Shizuku не запущен или разрешение не выдано" }
+        val process = newProcess(arrayOf("sh", "-c", "settings get global private_dns_mode; settings get global private_dns_specifier"))
+        val out = process.inputStream.bufferedReader().use { it.readText() }
+        val err = process.errorStream.bufferedReader().use { it.readText() }
+        val code = process.waitFor()
+        return code to (if (out.isNotBlank()) out else err).trim()
+    }
+
+    fun setPrivateDns(mode: String, hostname: String?): Pair<Int, String> {
+        require(ready()) { "Shizuku не запущен или разрешение не выдано" }
+        require(mode in setOf("off", "opportunistic", "hostname")) { "Недопустимый режим Private DNS" }
+        if (mode == "hostname") require(hostname != null && Regex("^[A-Za-z0-9.-]{1,253}$").matches(hostname)) {
+            "Недопустимое имя DNS-сервера"
+        }
+        val commands = mutableListOf(arrayOf("settings", "put", "global", "private_dns_mode", mode))
+        if (mode == "hostname") {
+            commands.add(arrayOf("settings", "put", "global", "private_dns_specifier", hostname!!))
+        } else {
+            commands.add(arrayOf("settings", "delete", "global", "private_dns_specifier"))
+        }
+        val outputs = StringBuilder()
+        for (args in commands) {
+            val process = newProcess(args)
+            val out = process.inputStream.bufferedReader().use { it.readText() }
+            val err = process.errorStream.bufferedReader().use { it.readText() }
+            val code = process.waitFor()
+            outputs.append(out).append(err)
+            if (code != 0) return code to outputs.toString().take(2000)
+        }
+        return 0 to outputs.toString().trim()
+    }
     fun execAppOpsDump(): Pair<Int, String> {
         require(ready()) { "Shizuku не запущен или разрешение не выдано" }
         val process = newProcess(arrayOf("dumpsys", "appops"))
