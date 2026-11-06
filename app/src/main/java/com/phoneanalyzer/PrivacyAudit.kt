@@ -25,7 +25,8 @@ object PrivacyAudit {
         "CAMERA" to "Камера",
         "RECORD_AUDIO" to "Микрофон",
         "BODY_SENSORS" to "Датчики тела",
-        "ACTIVITY_RECOGNITION" to "Распознавание активности"
+        "ACTIVITY_RECOGNITION" to "Распознавание активности",
+        "SYSTEM_ALERT_WINDOW" to "Показ поверх других приложений"
     )
     private val packageLine = Regex("^Package\\s+([^:]+):")
     private val opLine = Regex("^\\s{2}([A-Z][A-Z0-9_]+)\\s+\\(([^)]*)\\):")
