@@ -317,28 +317,10 @@ class MainActivity : Activity() {
             })
         }
 
-        c.addView(tv("Блокировка рекламы и трекеров", 18f))
         c.addView(tv(
-            "Можно включить системный Private DNS от AdGuard: dns.adguard-dns.com. Он фильтрует известные рекламные и трекерные домены на уровне DNS во многих приложениях. DNS-запросы будут обслуживаться выбранным внешним провайдером; содержимое HTTPS-соединений приложение не читает. Некоторые рекламные форматы и реклама с домена самого сервиса могут остаться.",
+            "Блокировка рекламы внутри игр и рекламных роликов с бонусами не выполняется. Здесь можно вручную запретить приложению системное разрешение на показ поверх других приложений. Это не затрагивает обычные рекламные блоки внутри самой игры.",
             12f
         ))
-        val dnsActive = adPrefs.getBoolean("ad_dns_active", false)
-        c.addView(tv(if (dnsActive) "Фильтрация AdGuard DNS включена настройкой приложения" else "Фильтрация AdGuard DNS не включена", 13f))
-        c.addView(btn("Включить блокировку рекламы и трекеров (AdGuard DNS)") {
-            bg {
-                val result = enableAdDns()
-                runOnUiThread { toast(result); show(5) }
-            }
-        })
-        c.addView(btn("Восстановить прежние настройки Private DNS") {
-            bg {
-                val result = restoreAdDns()
-                runOnUiThread { toast(result); show(5) }
-            }
-        })
-        if (!Shizu.ready()) {
-            c.addView(tv("Для управления Private DNS и точечного запрета показа поверх окон нужен Shizuku с выданным разрешением.", 12f))
-        }
 
         c.addView(tv("Сетевая активность", 17f))
         c.addView(tv(
@@ -358,46 +340,6 @@ class MainActivity : Activity() {
         val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
         val component = ComponentName(this, AdWindowMonitorService::class.java).flattenToString()
         return enabled.split(':').any { it.equals(component, ignoreCase = true) }
-    }
-
-    private fun enableAdDns(): String {
-        if (!Shizu.ready()) return "Сначала подключи Shizuku и выдай разрешение."
-        val prefs = getSharedPreferences("ad_monitor", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("ad_dns_active", false)) return "Фильтрация AdGuard DNS уже включена."
-        val (code, raw) = Shizu.readPrivateDnsSettings()
-        if (code != 0) return "Не удалось прочитать текущие настройки Private DNS: $raw"
-        val values = raw.split("\\n")
-        if (values.size < 2) return "Android вернул неожиданный ответ Private DNS. Настройки не менялись."
-        val oldMode = values[0].ifBlank { "null" }
-        val oldHost = values[1].ifBlank { "null" }
-        if (oldMode == "hostname" && oldHost == "null") return "Устройство сообщает о пользовательском DNS без имени сервера. Не меняю настройки, чтобы не потерять конфигурацию."
-        val result = Shizu.setPrivateDns("hostname", "dns.adguard-dns.com")
-        if (result.first != 0) {
-            if (oldMode in setOf("off", "opportunistic", "hostname")) {
-                Shizu.setPrivateDns(oldMode, if (oldMode == "hostname") oldHost else null)
-            }
-            return "Не удалось включить AdGuard DNS: ${result.second}"
-        }
-        prefs.edit()
-            .putString("dns_previous_mode", oldMode)
-            .putString("dns_previous_host", oldHost)
-            .putBoolean("ad_dns_active", true)
-            .apply()
-        return "AdGuard DNS включён. Если на телефоне активен другой VPN или собственный DNS-профиль, фильтрация может работать иначе."
-    }
-
-    private fun restoreAdDns(): String {
-        if (!Shizu.ready()) return "Для восстановления настроек нужен Shizuku."
-        val prefs = getSharedPreferences("ad_monitor", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("ad_dns_active", false)) return "Сохранённой конфигурации для восстановления нет."
-        val mode = prefs.getString("dns_previous_mode", "opportunistic") ?: "opportunistic"
-        val host = prefs.getString("dns_previous_host", "null") ?: "null"
-        if (mode !in setOf("off", "opportunistic", "hostname")) return "Сохранённый режим DNS некорректен. Ничего не менял."
-        if (mode == "hostname" && host == "null") return "Сохранённое имя Private DNS отсутствует. Ничего не менял."
-        val result = Shizu.setPrivateDns(mode, if (mode == "hostname") host else null)
-        if (result.first != 0) return "Не удалось восстановить Private DNS: ${result.second}"
-        prefs.edit().remove("dns_previous_mode").remove("dns_previous_host").putBoolean("ad_dns_active", false).apply()
-        return "Прежние настройки Private DNS восстановлены."
     }
 
     private fun notifyPrivacyFindings(events: List<PrivacyEvent>) {
