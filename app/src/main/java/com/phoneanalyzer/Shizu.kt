@@ -99,11 +99,16 @@ object Shizu {
 
     fun readPrivateDnsSettings(): Pair<Int, String> {
         require(ready()) { "Shizuku не запущен или разрешение не выдано" }
-        val process = newProcess(arrayOf("sh", "-c", "settings get global private_dns_mode; settings get global private_dns_specifier"))
-        val out = process.inputStream.bufferedReader().use { it.readText() }
-        val err = process.errorStream.bufferedReader().use { it.readText() }
-        val code = process.waitFor()
-        return code to (if (out.isNotBlank()) out else err).trim()
+        val values = ArrayList<String>()
+        for (key in arrayOf("private_dns_mode", "private_dns_specifier")) {
+            val process = newProcess(arrayOf("settings", "get", "global", key))
+            val out = process.inputStream.bufferedReader().use { it.readText() }
+            val err = process.errorStream.bufferedReader().use { it.readText() }
+            val code = process.waitFor()
+            if (code != 0) return code to err.take(1000)
+            values.add(out.trim().ifBlank { "null" })
+        }
+        return 0 to values.joinToString("\\n")
     }
 
     fun setPrivateDns(mode: String, hostname: String?): Pair<Int, String> {
