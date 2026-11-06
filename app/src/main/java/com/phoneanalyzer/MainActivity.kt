@@ -270,6 +270,76 @@ class MainActivity : Activity() {
             }
         }
 
+        c.addView(tv("Контроль рекламных окон", 18f))
+        c.addView(tv(
+            "Наблюдатель фиксирует смену пакетов окон и помогает найти приложение, которое внезапно выводит отдельное окно. Он не читает текст, сообщения, пароли или содержимое экрана. Событие — подозрение, а не автоматическое доказательство рекламы.",
+            12f
+        ))
+        val monitorEnabled = isAdWindowMonitorEnabled()
+        c.addView(tv(if (monitorEnabled) "Наблюдатель окон: включён" else "Наблюдатель окон: выключен", 13f))
+        c.addView(btn(if (monitorEnabled) "Настройки специальных возможностей" else "Включить наблюдатель окон") {
+            try { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            catch (_: Exception) { toast("Не удалось открыть специальные возможности") }
+        })
+        val adPrefs = getSharedPreferences("ad_monitor", Context.MODE_PRIVATE)
+        val adRows = try { org.json.JSONArray(adPrefs.getString("events", "[]")) } catch (_: Exception) { org.json.JSONArray() }
+        if (adRows.length() == 0) {
+            c.addView(tv("Подозрительных переключений окон пока нет. После включения наблюдателя открой приложение, в котором появляется реклама."))
+        } else {
+            c.addView(tv("События наблюдателя (последние ${adRows.length()}):", 14f))
+            for (idx in adRows.length() - 1 downTo 0) {
+                val item = adRows.optJSONObject(idx) ?: continue
+                val source = item.optString("source")
+                val previous = item.optString("previous")
+                val time = PrivacyAudit.formatTime(item.optLong("time"))
+                c.addView(tv("$time\nОкно: $source\nПеред ним: $previous\nКласс окна: ${item.optString("class")}", 12f))
+                if (Shizu.ready() && source.isNotBlank() && Shizu.validPkg(source)) {
+                    c.addView(btn("Запретить $source показывать окна поверх других приложений") {
+                        bg {
+                            val result = Shizu.execAppOpsSetOverlay(source, "ignore")
+                            runOnUiThread {
+                                if (result.first == 0) toast("Запрет SYSTEM_ALERT_WINDOW установлен для $source")
+                                else toast("Не удалось изменить AppOps: ${result.second}")
+                            }
+                        }
+                    })
+                    c.addView(btn("Вернуть стандартный режим показа окон для $source") {
+                        bg {
+                            val result = Shizu.execAppOpsSetOverlay(source, "default")
+                            runOnUiThread { toast(if (result.first == 0) "Стандартный режим восстановлен" else "Ошибка: ${result.second}") }
+                        }
+                    })
+                }
+            }
+            c.addView(btn("Очистить историю окон") {
+                adPrefs.edit().putString("events", "[]").apply()
+                show(5)
+            })
+        }
+
+        c.addView(tv("Блокировка рекламы и трекеров", 18f))
+        c.addView(tv(
+            "Можно включить системный Private DNS от AdGuard: dns.adguard-dns.com. Он фильтрует известные рекламные и трекерные домены на уровне DNS во многих приложениях. DNS-запросы будут обслуживаться выбранным внешним провайдером; содержимое HTTPS-соединений приложение не читает. Некоторые рекламные форматы и реклама с домена самого сервиса могут остаться.",
+            12f
+        ))
+        val dnsActive = adPrefs.getBoolean("ad_dns_active", false)
+        c.addView(tv(if (dnsActive) "Фильтрация AdGuard DNS включена настройкой приложения" else "Фильтрация AdGuard DNS не включена", 13f))
+        c.addView(btn("Включить блокировку рекламы и трекеров (AdGuard DNS)") {
+            bg {
+                val result = enableAdDns()
+                runOnUiThread { toast(result); show(5) }
+            }
+        })
+        c.addView(btn("Восстановить прежние настройки Private DNS") {
+            bg {
+                val result = restoreAdDns()
+                runOnUiThread { toast(result); show(5) }
+            }
+        })
+        if (!Shizu.ready()) {
+            c.addView(tv("Для управления Private DNS и точечного запрета показа поверх окон нужен Shizuku с выданным разрешением.", 12f))
+        }
+
         c.addView(tv("Сетевая активность", 17f))
         c.addView(tv(
             "Ниже — общий объём Wi‑Fi и мобильного трафика за текущие сутки по статистике Android. Система не всегда разделяет его на фоновый и активный режим; объём сам по себе не доказывает утечку данных.",
@@ -282,6 +352,52 @@ class MainActivity : Activity() {
             c.addView(tv("${app.label}: ${Fmt.bytes(bytes)}", 13f))
         }
         return c
+    }
+
+    private fun isAdWindowMonitorEnabled(): Boolean {
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+        val component = ComponentName(this, AdWindowMonitorService::class.java).flattenToString()
+        return enabled.split(':').any { it.equals(component, ignoreCase = true) }
+    }
+
+    private fun enableAdDns(): String {
+        if (!Shizu.ready()) return "Сначала подключи Shizuku и выдай разрешение."
+        val prefs = getSharedPreferences("ad_monitor", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("ad_dns_active", false)) return "Фильтрация AdGuard DNS уже включена."
+        val (code, raw) = Shizu.readPrivateDnsSettings()
+        if (code != 0) return "Не удалось прочитать текущие настройки Private DNS: $raw"
+        val values = raw.split("\\n")
+        if (values.size < 2) return "Android вернул неожиданный ответ Private DNS. Настройки не менялись."
+        val oldMode = values[0].ifBlank { "null" }
+        val oldHost = values[1].ifBlank { "null" }
+        if (oldMode == "hostname" && oldHost == "null") return "Устройство сообщает о пользовательском DNS без имени сервера. Не меняю настройки, чтобы не потерять конфигурацию."
+        val result = Shizu.setPrivateDns("hostname", "dns.adguard-dns.com")
+        if (result.first != 0) {
+            if (oldMode in setOf("off", "opportunistic", "hostname")) {
+                Shizu.setPrivateDns(oldMode, if (oldMode == "hostname") oldHost else null)
+            }
+            return "Не удалось включить AdGuard DNS: ${result.second}"
+        }
+        prefs.edit()
+            .putString("dns_previous_mode", oldMode)
+            .putString("dns_previous_host", oldHost)
+            .putBoolean("ad_dns_active", true)
+            .apply()
+        return "AdGuard DNS включён. Если на телефоне активен другой VPN или собственный DNS-профиль, фильтрация может работать иначе."
+    }
+
+    private fun restoreAdDns(): String {
+        if (!Shizu.ready()) return "Для восстановления настроек нужен Shizuku."
+        val prefs = getSharedPreferences("ad_monitor", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("ad_dns_active", false)) return "Сохранённой конфигурации для восстановления нет."
+        val mode = prefs.getString("dns_previous_mode", "opportunistic") ?: "opportunistic"
+        val host = prefs.getString("dns_previous_host", "null") ?: "null"
+        if (mode !in setOf("off", "opportunistic", "hostname")) return "Сохранённый режим DNS некорректен. Ничего не менял."
+        if (mode == "hostname" && host == "null") return "Сохранённое имя Private DNS отсутствует. Ничего не менял."
+        val result = Shizu.setPrivateDns(mode, if (mode == "hostname") host else null)
+        if (result.first != 0) return "Не удалось восстановить Private DNS: ${result.second}"
+        prefs.edit().remove("dns_previous_mode").remove("dns_previous_host").putBoolean("ad_dns_active", false).apply()
+        return "Прежние настройки Private DNS восстановлены."
     }
 
     private fun notifyPrivacyFindings(events: List<PrivacyEvent>) {
