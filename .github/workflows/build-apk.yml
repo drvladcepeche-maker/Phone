@@ -32,6 +32,9 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
       - name: Configure stable signing
         id: signing
         shell: bash
