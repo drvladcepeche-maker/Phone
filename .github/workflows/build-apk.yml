@@ -2,7 +2,7 @@ name: Сборка Анализ телефона 2
 
 on:
   push:
-    branches: [main, "feature/**"]
+    branches: [main, "feature/**", "fix/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -32,6 +32,9 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"
+      - name: Run unit tests
+        run: gradle testDebugUnitTest
+
       - name: Configure stable signing
         id: signing
         shell: bash
@@ -75,13 +78,13 @@ jobs:
         run: gradle assembleRelease --no-daemon
       - name: Rename release APK
         if: steps.signing.outputs.configured == 'true'
-        run: cp app/build/outputs/apk/release/app-release.apk "Анализ телефона 2-v1.3.0.apk"
+        run: cp app/build/outputs/apk/release/app-release.apk "Анализ телефона 2-v1.3.1.apk"
       - name: Upload signed release APK
         if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Анализ телефона 2-v1.3.0
-          path: Анализ телефона 2-v1.3.0.apk
+          name: Анализ телефона 2-v1.3.1
+          path: Анализ телефона 2-v1.3.1.apk
           if-no-files-found: error
       - name: Upload debug validation APK
         if: steps.signing.outputs.configured != 'true'

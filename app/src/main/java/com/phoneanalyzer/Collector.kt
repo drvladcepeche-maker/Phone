@@ -150,6 +150,7 @@ class Collector(private val ctx: Context) {
         val lastUsed = HashMap<String, Long>()
         val fg30 = HashMap<String, Long>()
         val fgDaily = HashMap<String, LongArray>()
+        var usageStatsOk = false
         if (usage) {
             try {
                 val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
@@ -159,7 +160,10 @@ class Collector(private val ctx: Context) {
                     val idx = ((s.firstTimeStamp - start0) / day).toInt().coerceIn(0, days - 1)
                     fgDaily.getOrPut(s.packageName) { LongArray(days) }[idx] += s.totalTimeInForeground
                 }
-            } catch (e: Exception) { /* статистика недоступна */ }
+                usageStatsOk = true
+            } catch (e: Exception) {
+                usageStatsOk = false
+            }
         }
 
         var wifi = HashMap<Int, LongArray>()
@@ -237,7 +241,8 @@ class Collector(private val ctx: Context) {
                 notifListener = pkg in notif, accessibility = pkg in acc, deviceAdmin = pkg in admins,
                 batteryUnrestricted = try { power.isIgnoringBatteryOptimizations(pkg) } catch (e: Exception) { false }
             )
-            val (cat, why) = Rules.classify(raw, now, usage)
+            val appUsageKnown = usageStatsOk && lastUsed.containsKey(pkg)
+            val (cat, why) = Rules.classify(raw, now, appUsageKnown)
             out.add(raw.copy(category = cat, reason = why))
         }
         progress(base.size, base.size)

@@ -386,7 +386,7 @@ class MainActivity : Activity() {
         var l = when (filterIdx) {
             1 -> apps.filter { !it.system }
             2 -> apps.filter { it.system }
-            3 -> apps.filter { val ref = if (it.lastUsed > 0) it.lastUsed else it.installed; (now - ref) / day > 60 }
+            3 -> apps.filter { it.lastUsed > 0 && (now - it.lastUsed) / day > 60 }
             4 -> apps.filter { it.category == "Можно удалить" || it.category == "Можно отключить" }
             else -> apps
         }
