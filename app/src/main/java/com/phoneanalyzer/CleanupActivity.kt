@@ -354,12 +354,15 @@ class CleanupActivity : Activity() {
             } else {
                 // Открытие экрана настроек не является доказательством очистки кэша.
                 val before = apps.firstOrNull { app -> app.pkg == it.pkg }?.cacheBytes ?: -1L
+                busy = true
+                render()
                 bg {
                     val after = try { Collector(applicationContext).collect().firstOrNull { app -> app.pkg == it.pkg }?.cacheBytes ?: -1L }
                         catch (_: Exception) { -1L }
                     val ok = before >= 0L && after >= 0L && after < before
                     log(it, ok, if (ok) "уменьшение кэша подтверждено повторным сканированием" else "изменение кэша не подтверждено")
                     runOnUiThread {
+                        busy = false
                         results.add((if (ok) "✓ кэш уменьшен: " else "– очистка кэша не подтверждена: ") + it.label)
                         it.checked = false
                         next()
