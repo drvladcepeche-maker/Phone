@@ -204,7 +204,7 @@ class CleanupActivity : Activity() {
 
     private fun planBlock(c: LinearLayout) {
         c.addView(tv("План из репозитория", 17f))
-        c.addView(tv("Загружает plans/cleanup.json из репозитория (из настроек вкладки «Отчёт») и только отмечает галочки. Выполнение всё равно требует вашего подтверждения.", 12f))
+        c.addView(tv("Загружает публичный plans/cleanup.json. План может отметить только кандидатов, прошедших локальные проверки безопасности. Выполнение требует вашего подтверждения.", 12f))
         c.addView(btn("Загрузить план") { loadPlan() })
         if (planNote.isNotEmpty()) c.addView(tv(planNote, 13f))
     }
