@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ad_monitor_accessibility_description">Отслеживает только смену окон и названия пакетов приложений. Не читает текст, сообщения, пароли и содержимое экрана.</string>
+</resources>

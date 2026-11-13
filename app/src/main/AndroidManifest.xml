@@ -6,9 +6,10 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <application
-        android:label="Анализ телефона"
+        android:label="Анализ телефона 2"
         android:allowBackup="false"
         android:theme="@android:style/Theme.Material.Light.DarkActionBar">
         <activity android:name=".MainActivity" android:exported="true">
@@ -28,5 +29,20 @@
         <service android:name=".SnapshotJob"
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false" />
+        <service android:name=".PrivacyScanJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+        <service
+            android:name=".AdWindowMonitorService"
+            android:label="Контроль рекламных окон"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/ad_monitor_accessibility" />
+        </service>
     </application>
 </manifest>

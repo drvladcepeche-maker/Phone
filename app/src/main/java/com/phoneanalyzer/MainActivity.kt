@@ -1,6 +1,11 @@
 package com.phoneanalyzer
 
+import android.Manifest
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
 import android.app.AlertDialog
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
@@ -37,6 +42,7 @@ class MainActivity : Activity() {
     private var current = 0
     private var filterIdx = 0
     private var sortIdx = 0
+    private var privacyEvents: List<PrivacyEvent> = emptyList()
 
     private val filters = listOf("Все", "Пользовательские", "Системные", "Давно не используемые", "Удалить или отключить")
     private val sorts = listOf("По имени", "По месту (данные+кэш)", "По трафику", "По времени на экране")
@@ -47,10 +53,13 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Remove legacy GitHub credentials that older versions stored in plain preferences.
+        getSharedPreferences("settings", Context.MODE_PRIVATE).edit()
+            .remove("token").remove("repo").remove("upload").apply()
         collector = Collector(applicationContext)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("Сводка", "Приложения", "Изменения", "Отчёт", "Очистка").forEachIndexed { i, t ->
+        listOf("Сводка", "Приложения", "Изменения", "Отчёт", "Очистка", "Защита").forEachIndexed { i, t ->
             nav.addView(Button(this).apply {
                 text = t; textSize = 11f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -69,8 +78,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("privacy_monitor", false) && Shizu.ready()) {
+            schedulePrivacyMonitor(true)
+        }
         val now = collector.hasUsageAccess()
-        if (now != usage) { usage = now; reload() }
+        if (now != usage) { usage = now; reload() } else if (!loading && current == 0) show(0)
     }
 
     private fun askUsageAccess() {
@@ -83,6 +95,16 @@ class MainActivity : Activity() {
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+
+    private fun openExternal(url: String) {
+        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        catch (_: Exception) { toast("Не удалось открыть ссылку") }
+    }
+
+    private fun openShizuku() {
+        val intent = packageManager.getLaunchIntentForPackage(Shizu.PKG)
+        if (intent != null) startActivity(intent) else toast("Shizuku не найден")
+    }
 
     private fun bg(work: () -> Unit) = Thread {
         try { work() } catch (e: Throwable) { runOnUiThread { toast("Ошибка: " + e.message) } }
@@ -115,6 +137,7 @@ class MainActivity : Activity() {
             0 -> content.addView(scroll(summaryView()))
             1 -> content.addView(appsView())
             2 -> content.addView(scroll(changesView()))
+            5 -> content.addView(scroll(privacyView()))
             else -> content.addView(scroll(reportView()))
         }
     }
@@ -135,7 +158,11 @@ class MainActivity : Activity() {
         val d = device
         val user = apps.count { !it.system }
         val sb = StringBuilder()
-        sb.append(d.optString("model")).append("\nAndroid ").append(d.optString("android")).append(", патч ").append(d.optString("securityPatch")).append("\n\n")
+        sb.append(d.optString("model")).append("\nAndroid ").append(d.optString("android")).append(", патч ").append(d.optString("securityPatch")).append("\n")
+        sb.append("Паспорт: ").append(d.optString("manufacturer")).append(" / ").append(d.optString("device")).append(" / ").append(d.optString("hardware")).append("\n")
+        sb.append("Сборка: ").append(d.optString("fingerprint")).append("\n")
+        sb.append("Экран: ").append(d.optInt("screenWidthPx")).append("x").append(d.optInt("screenHeightPx")).append(" px, ").append(d.optInt("densityDpi")).append(" dpi\n")
+        sb.append("ABI: ").append(d.optJSONArray("supportedAbis")?.let { ar -> (0 until ar.length()).joinToString(", ") { ar.getString(it) } } ?: "н/д").append("\n\n")
         sb.append("ОЗУ: свободно ").append(Fmt.bytes(d.optLong("ramAvailable"))).append(" из ").append(Fmt.bytes(d.optLong("ramTotal")))
             .append(if (d.optBoolean("ramLow")) "  (мало памяти!)" else "").append("\n")
         sb.append("Хранилище: свободно ").append(Fmt.bytes(d.optLong("storageFree"))).append(" из ").append(Fmt.bytes(d.optLong("storageTotal"))).append("\n")
@@ -148,9 +175,207 @@ class MainActivity : Activity() {
             c.addView(tv("Нет доступа к статистике использования: время работы, трафик и размеры данных недоступны."))
             c.addView(btn("Выдать доступ") { askUsageAccess() })
         }
+        c.addView(tv("Доступ Shizuku", 16f))
+        when {
+            Shizu.ready() -> c.addView(tv("Подключён. Разрешены безопасные системные операции из вкладки «Очистка»."))
+            !Shizu.installed(this) -> {
+                c.addView(tv("Shizuku не установлен. Без него доступны только системные окна Android."))
+                c.addView(btn("Установить Shizuku") { openExternal("https://shizuku.rikka.app/download/") })
+            }
+            !Shizu.running() -> {
+                c.addView(tv("Shizuku установлен, но не запущен. Запусти его через беспроводную отладку."))
+                c.addView(btn("Открыть Shizuku") { openShizuku() })
+            }
+            else -> {
+                c.addView(tv("Shizuku запущен. Нужно выдать разрешение приложению «Анализ телефона»."))
+                c.addView(btn("Запросить разрешение") { if (!Shizu.request()) toast("Не удалось запросить разрешение Shizuku") })
+            }
+        }
         c.addView(tv("Время и трафик берутся из системной статистики; расход батареи и процессора по чужим приложениям Android не раскрывает, поэтому оценки приблизительные.", 12f))
         c.addView(btn("Обновить данные") { reload() })
         return c
+    }
+
+    // ---------- Монитор приватности ----------
+
+    private fun privacyView(): View {
+        val c = col()
+        c.addView(tv("Защита от нежелательной активности", 18f))
+        c.addView(tv(
+            "Журнал AppOps показывает зарегистрированные Android обращения к геолокации, камере, микрофону и отдельным датчикам. " +
+            "Отметка «фон» означает, что система зарегистрировала операцию в фоновом состоянии. Это повод проверить приложение, но не доказательство передачи данных третьим лицам.",
+            13f
+        ))
+        val privacyPrefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val automatic = CheckBox(this).apply {
+            text = "Автоматическая проверка каждые 15 минут (интервал может увеличиваться по решению Android)"
+            isChecked = privacyPrefs.getBoolean("privacy_monitor", false)
+        }
+        c.addView(automatic)
+        c.addView(btn("Сохранить режим мониторинга") {
+            if (automatic.isChecked && !Shizu.ready()) {
+                toast("Для фоновой проверки нужен запущенный Shizuku с разрешением.")
+                return@btn
+            }
+            if (automatic.isChecked && Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 302)
+                toast("Разреши уведомления и нажми сохранение ещё раз.")
+                return@btn
+            }
+            privacyPrefs.edit()
+                .putBoolean("privacy_monitor", automatic.isChecked)
+                .putLong("privacy_last_scan", System.currentTimeMillis())
+                .apply()
+            schedulePrivacyMonitor(automatic.isChecked)
+            toast(if (automatic.isChecked) "Фоновый мониторинг включён" else "Фоновый мониторинг выключен")
+        })
+        if (!Shizu.ready()) {
+            c.addView(tv("Для чтения системного журнала нужен Shizuku. Установи и запусти его, затем выдай разрешение приложению."))
+            if (!Shizu.installed(this)) {
+                c.addView(btn("Установить Shizuku") { openExternal("https://shizuku.rikka.app/download/") })
+            } else if (!Shizu.running()) {
+                c.addView(btn("Открыть Shizuku") { openShizuku() })
+            } else {
+                c.addView(btn("Запросить разрешение") { if (!Shizu.request()) toast("Не удалось запросить разрешение Shizuku") })
+            }
+        } else {
+            c.addView(btn("Проверить системный журнал") {
+                toast("Читаю журнал AppOps…")
+                bg {
+                    val found = PrivacyAudit.scan(this)
+                    runOnUiThread {
+                        privacyEvents = found
+                        notifyPrivacyFindings(found)
+                        show(5)
+                        toast("Записей AppOps: ${found.size}")
+                    }
+                }
+            })
+        }
+
+        if (privacyEvents.isEmpty()) {
+            c.addView(tv("События ещё не загружены. Выполни проверку журнала."))
+        } else {
+            val recent = privacyEvents.filter { System.currentTimeMillis() - it.timestamp < 24L * 3600 * 1000 }
+            c.addView(tv("События за последние 24 часа: ${recent.size}. Период журнала — до 7 дней, если Android сохранил записи.", 13f))
+            privacyEvents.take(100).forEach { event ->
+                val status = when {
+                    event.rejected -> "ЗАБЛОКИРОВАНО"
+                    event.background -> "ФОНОВЫЙ ДОСТУП — ПРОВЕРИТЬ"
+                    else -> "доступ зарегистрирован"
+                }
+                val line = "${event.appLabel}\n${event.resource} · ${PrivacyAudit.formatTime(event.timestamp)}\n$status · режим: ${event.mode}\n${event.packageName}"
+                c.addView(tv(line, 13f))
+            }
+        }
+
+        c.addView(tv("Контроль рекламных окон", 18f))
+        c.addView(tv(
+            "Наблюдатель фиксирует смену пакетов окон и помогает найти приложение, которое внезапно выводит отдельное окно. Он не читает текст, сообщения, пароли или содержимое экрана. Событие — подозрение, а не автоматическое доказательство рекламы.",
+            12f
+        ))
+        val monitorEnabled = isAdWindowMonitorEnabled()
+        c.addView(tv(if (monitorEnabled) "Наблюдатель окон: включён" else "Наблюдатель окон: выключен", 13f))
+        c.addView(btn(if (monitorEnabled) "Настройки специальных возможностей" else "Включить наблюдатель окон") {
+            try { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            catch (_: Exception) { toast("Не удалось открыть специальные возможности") }
+        })
+        val adPrefs = getSharedPreferences("ad_monitor", Context.MODE_PRIVATE)
+        val adRows = try { org.json.JSONArray(adPrefs.getString("events", "[]")) } catch (_: Exception) { org.json.JSONArray() }
+        if (adRows.length() == 0) {
+            c.addView(tv("Подозрительных переключений окон пока нет. После включения наблюдателя открой приложение, в котором появляется реклама."))
+        } else {
+            c.addView(tv("События наблюдателя (последние ${adRows.length()}):", 14f))
+            for (idx in adRows.length() - 1 downTo 0) {
+                val item = adRows.optJSONObject(idx) ?: continue
+                val source = item.optString("source")
+                val sourceLabel = item.optString("sourceLabel", source)
+                val previous = item.optString("previous")
+                val previousLabel = item.optString("previousLabel", previous)
+                val time = PrivacyAudit.formatTime(item.optLong("time"))
+                c.addView(tv("$time\nОкно: $source\nПеред ним: $previous\nКласс окна: ${item.optString("class")}", 12f))
+                if (Shizu.ready() && source.isNotBlank() && Shizu.validPkg(source)) {
+                    c.addView(btn("Запретить $source показывать окна поверх других приложений") {
+                        bg {
+                            val result = Shizu.execAppOpsSetOverlay(source, "ignore")
+                            runOnUiThread {
+                                if (result.first == 0) toast("Запрет SYSTEM_ALERT_WINDOW установлен для $source")
+                                else toast("Не удалось изменить AppOps: ${result.second}")
+                            }
+                        }
+                    })
+                    c.addView(btn("Вернуть стандартный режим показа окон для $source") {
+                        bg {
+                            val result = Shizu.execAppOpsSetOverlay(source, "default")
+                            runOnUiThread { toast(if (result.first == 0) "Стандартный режим восстановлен" else "Ошибка: ${result.second}") }
+                        }
+                    })
+                }
+            }
+            c.addView(btn("Очистить историю окон") {
+                adPrefs.edit().putString("events", "[]").apply()
+                show(5)
+            })
+        }
+
+        c.addView(tv(
+            "Блокировка рекламы внутри игр и рекламных роликов с бонусами не выполняется. Здесь можно вручную запретить приложению системное разрешение на показ поверх других приложений. Это не затрагивает обычные рекламные блоки внутри самой игры.",
+            12f
+        ))
+
+        c.addView(tv("Сетевая активность", 17f))
+        c.addView(tv(
+            "Ниже — общий объём Wi‑Fi и мобильного трафика за текущие сутки по статистике Android. Система не всегда разделяет его на фоновый и активный режим; объём сам по себе не доказывает утечку данных.",
+            12f
+        ))
+        apps.map { app ->
+            val bytes = (app.wifiDaily.lastOrNull() ?: 0L) + (app.mobileDaily.lastOrNull() ?: 0L)
+            app to bytes
+        }.filter { it.second > 0L }.sortedByDescending { it.second }.take(15).forEach { (app, bytes) ->
+            c.addView(tv("${app.label}: ${Fmt.bytes(bytes)}", 13f))
+        }
+        return c
+    }
+
+    private fun isAdWindowMonitorEnabled(): Boolean {
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+        val component = ComponentName(this, AdWindowMonitorService::class.java).flattenToString()
+        return enabled.split(':').any { it.equals(component, ignoreCase = true) }
+    }
+
+    private fun notifyPrivacyFindings(events: List<PrivacyEvent>) {
+        val now = System.currentTimeMillis()
+        val background = events.filter {
+            !it.rejected && it.background && now - it.timestamp < 24L * 3600 * 1000
+        }
+        if (background.isEmpty()) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 302)
+            toast("Обнаружены фоновые обращения к чувствительным ресурсам. Разреши уведомления, чтобы получать предупреждения.")
+            return
+        }
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = "phone_analyzer_privacy"
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(
+                NotificationChannel(channel, "Защита приватности", NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
+        val names = background.map { it.appLabel }.distinct().take(3).joinToString(", ")
+        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, channel)
+                      else Notification.Builder(this)
+        val notification = builder
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle("Фоновый доступ к чувствительным ресурсам")
+            .setContentText("${background.size} событий: $names")
+            .setStyle(Notification.BigTextStyle().bigText(
+                background.take(8).joinToString("\\n") { "${it.appLabel}: ${it.resource} — ${PrivacyAudit.formatTime(it.timestamp)}" }
+            ))
+            .setAutoCancel(true)
+            .build()
+        try { manager.notify(4201, notification) } catch (_: SecurityException) { }
     }
 
     // ---------- Приложения ----------
@@ -161,7 +386,7 @@ class MainActivity : Activity() {
         var l = when (filterIdx) {
             1 -> apps.filter { !it.system }
             2 -> apps.filter { it.system }
-            3 -> apps.filter { val ref = if (it.lastUsed > 0) it.lastUsed else it.installed; (now - ref) / day > 60 }
+            3 -> apps.filter { it.lastUsed > 0 && (now - it.lastUsed) / day > 60 }
             4 -> apps.filter { it.category == "Можно удалить" || it.category == "Можно отключить" }
             else -> apps
         }
@@ -243,9 +468,10 @@ class MainActivity : Activity() {
         val snaps = Snapshots.list(this)
         c.addView(btn("Сделать снимок сейчас") {
             if (apps.isEmpty()) { toast("Данные ещё не собраны"); return@btn }
-            Snapshots.save(this, apps); toast("Снимок сохранён"); show(2)
+            Snapshots.save(this, apps, device); toast("Снимок паспорта устройства сохранён"); show(2)
         })
-        c.addView(tv("Снимков сохранено: " + snaps.size + " (хранятся последние 30)."))
+        c.addView(tv("Снимков паспорта устройства сохранено: " + snaps.size + " (хранятся последние 30)."))
+        c.addView(tv("Снимок включает параметры сборки Android, аппаратную платформу, экран, приложения, версии, разрешения, трафик и специальные доступы. IMEI, серийный номер, Android ID и координаты GPS не собираются."))
         if (snaps.size < 2) c.addView(tv("Для сравнения нужно минимум два снимка."))
         else c.addView(tv(Snapshots.diff(snaps[snaps.size - 2], snaps.last())))
         return c
@@ -256,9 +482,13 @@ class MainActivity : Activity() {
     private fun reportView(): View {
         val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
         val c = col()
-        c.addView(tv("Отчёт содержит сводку устройства и данные по приложениям. Он не содержит сообщений, звонков, контактов, файлов, истории браузера, местоположения и идентификаторов устройства.", 13f))
-        c.addView(btn("Сохранить отчёт (JSON)") { withReport { json, _ -> pendingText = json; createDoc("report.json", "application/json", reqJson) } })
-        c.addView(btn("Сохранить отчёт (текст)") { withReport { _, txt -> pendingText = txt; createDoc("report.txt", "text/plain", reqTxt) } })
+        c.addView(tv("Отчёт содержит характеристики устройства и сведения об установленных приложениях: размеры, разрешения, время использования и трафик. Контакты, сообщения, звонки, личные файлы и история браузера не собираются.", 13f))
+        c.addView(btn("Сохранить отчёт (JSON)") {
+            withReport { json, _ -> pendingText = json; createDoc("phone-report.json", "application/json", reqJson) }
+        })
+        c.addView(btn("Сохранить отчёт (текст)") {
+            withReport { _, txt -> pendingText = txt; createDoc("phone-report.txt", "text/plain", reqTxt) }
+        })
         c.addView(btn("Поделиться текстом") {
             withReport { _, txt ->
                 startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
@@ -266,33 +496,81 @@ class MainActivity : Activity() {
                 }, "Поделиться отчётом"))
             }
         })
-        c.addView(tv("Отправка в репозиторий (по умолчанию выключена)", 15f))
-        val enable = CheckBox(this).apply { text = "Включить отправку отчёта"; isChecked = prefs.getBoolean("upload", false) }
-        val repo = EditText(this).apply { hint = "Репозиторий (владелец/имя)"; setSingleLine(); setText(prefs.getString("repo", "drvladcepeche-maker/Phone")) }
+
+        c.addView(tv("Серверный мост Supabase", 16f))
+        c.addView(tv("Отправка выключена по умолчанию. Для подключения используй 64-значный токен устройства из Termux: ~/.config/termux-bridge/device-token. Токен шифруется ключом Android Keystore и не сохраняется открытым текстом.", 12f))
         val token = EditText(this).apply {
-            hint = "GitHub-токен (Contents: Read and write)"; setSingleLine()
+            hint = "Токен устройства (64 hex-символа)"
+            setSingleLine()
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(prefs.getString("token", ""))
+            setText(SecureTokenStore.load(this@MainActivity) ?: "")
         }
-        val daily = CheckBox(this).apply { text = "Делать снимок раз в сутки"; isChecked = prefs.getBoolean("daily", false) }
-        listOf<View>(enable, repo, token, daily).forEach { c.addView(it) }
-        c.addView(btn("Сохранить настройки") {
-            prefs.edit().putBoolean("upload", enable.isChecked).putString("repo", repo.text.toString().trim())
-                .putString("token", token.text.toString().trim()).putBoolean("daily", daily.isChecked).apply()
+        c.addView(token)
+        c.addView(btn("Сохранить токен моста") {
+            try {
+                SecureTokenStore.save(this, token.text.toString())
+                toast("Токен сохранён в Android Keystore")
+            } catch (e: Exception) {
+                toast(e.message ?: "Не удалось сохранить токен")
+            }
+        })
+        c.addView(btn("Удалить токен моста") {
+            SecureTokenStore.clear(this)
+            token.setText("")
+            toast("Подключение удалено с этого устройства")
+        })
+        c.addView(btn("Проверить подключение к серверу") {
+            if (SecureTokenStore.load(this).isNullOrBlank()) {
+                toast("Сначала сохраните токен моста")
+                return@btn
+            }
+            toast("Проверка подключения…")
+            bg {
+                val result = ServerBridge.ping(this)
+                runOnUiThread {
+                    toast(if (result.optBoolean("ok")) "Мост подключён: " + result.optString("device") else "Сервер не подтвердил подключение")
+                }
+            }
+        })
+        c.addView(btn("Отправить отчёт на сервер") {
+            if (SecureTokenStore.load(this).isNullOrBlank()) {
+                toast("Сначала сохраните токен моста")
+                return@btn
+            }
+            withReport { json, _ -> confirmUpload(json) }
+        })
+
+        c.addView(tv("Фоновые снимки", 16f))
+        val daily = CheckBox(this).apply {
+            text = "Делать снимок раз в сутки"
+            isChecked = prefs.getBoolean("daily", false)
+        }
+        c.addView(daily)
+        c.addView(btn("Сохранить настройки снимков") {
+            prefs.edit().putBoolean("daily", daily.isChecked).apply()
             schedule(daily.isChecked)
             toast("Настройки сохранены")
-        })
-        c.addView(btn("Отправить отчёт в репозиторий") {
-            if (!prefs.getBoolean("upload", false)) { toast("Включите отправку и сохраните настройки"); return@btn }
-            val t = prefs.getString("token", "") ?: ""
-            val r = prefs.getString("repo", "") ?: ""
-            if (t.isEmpty() || r.isEmpty()) { toast("Укажите репозиторий и токен"); return@btn }
-            withReport { json, _ -> confirmUpload(t, r, json) }
         })
         return c
     }
 
+    private fun schedulePrivacyMonitor(enabled: Boolean) {
+        val js = getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+        if (!enabled) {
+            js.cancel(2)
+            return
+        }
+        val request = JobInfo.Builder(2, ComponentName(this, PrivacyScanJob::class.java))
+            .setPeriodic(15L * 60 * 1000)
+            .build()
+        js.schedule(request)
+    }
+
     private fun schedule(on: Boolean) {
+        if (on && android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 301)
+        }
         val js = getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
         if (on) js.schedule(JobInfo.Builder(1, ComponentName(this, SnapshotJob::class.java))
             .setPeriodic(24L * 3600 * 1000).build())
@@ -308,18 +586,46 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun confirmUpload(token: String, repo: String, json: String) {
-        val name = "report-" + Fmt.stamp(System.currentTimeMillis()) + ".json.gz"
-        val data = Reporter.gzip(json)
-        AlertDialog.Builder(this).setTitle("Отправить отчёт?")
-            .setMessage("Приложений: " + apps.size + "\nРазмер: " + Fmt.bytes(json.toByteArray(Charsets.UTF_8).size.toLong()) + " (в архиве gzip: " + Fmt.bytes(data.size.toLong()) + ")" +
-                "\nРазделы: сводка устройства; по каждому приложению — версия, размеры, время на экране, трафик по дням, службы, автозапуск, разрешения, категория и причина." +
-                "\n\nКуда: " + repo + "/reports/" + name + "\nТокен в отчёт не входит. Файл можно сначала сохранить и просмотреть.")
-            .setPositiveButton("Отправить") { _, _ ->
-                toast("Отправка…")
-                bg {
-                    val url = Reporter.upload(token, repo, name, data) { n -> runOnUiThread { toast("Повтор, попытка " + n + " из 3…") } }
-                    runOnUiThread { AlertDialog.Builder(this).setTitle("Отправлено").setMessage(url).setPositiveButton("Закрыть", null).show() }
+    private fun confirmUpload(json: String) {
+        val reportId = java.util.UUID.randomUUID().toString()
+        val size = json.toByteArray(Charsets.UTF_8).size
+        AlertDialog.Builder(this).setTitle("Отправить отчёт на сервер?")
+            .setMessage(
+                "Приложений в отчёте: ${apps.size}\nРазмер: ${Fmt.bytes(size.toLong())}\n\n" +
+                "Будут переданы сводка устройства и сведения об установленных приложениях, их разрешениях, размерах, времени использования и сетевом трафике. " +
+                "Контакты, сообщения, звонки, файлы и местоположение не входят в отчёт.\n\n" +
+                "Отчёт будет сохранён в закрытой таблице Supabase для последующей серверной обработки. Автоматическая отправка не включается."
+            )
+            .setPositiveButton("Поставить в очередь") { _, _ ->
+                try {
+                    val queueDir = java.io.File(filesDir, "queued_reports")
+                    if (!queueDir.exists() && !queueDir.mkdirs()) throw java.io.IOException("Не удалось создать папку очереди")
+                    val reportFile = java.io.File(queueDir, "report-$reportId.json")
+                    reportFile.writeText(json, Charsets.UTF_8)
+                    val request = androidx.work.OneTimeWorkRequest.Builder(ReportUploadWorker::class.java)
+                        .setInputData(androidx.work.workDataOf(
+                            "report_path" to reportFile.absolutePath,
+                            "report_id" to reportId
+                        ))
+                        .setConstraints(
+                            androidx.work.Constraints.Builder()
+                                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                                .build()
+                        )
+                        .setBackoffCriteria(
+                            androidx.work.BackoffPolicy.EXPONENTIAL,
+                            30,
+                            java.util.concurrent.TimeUnit.SECONDS
+                        )
+                        .build()
+                    androidx.work.WorkManager.getInstance(this).enqueueUniqueWork(
+                        "phone_report_upload_$reportId",
+                        androidx.work.ExistingWorkPolicy.KEEP,
+                        request
+                    )
+                    toast("Отчёт поставлен в очередь. Отправка продолжится в фоне.")
+                } catch (e: Exception) {
+                    toast(e.message ?: "Не удалось поставить отчёт в очередь")
                 }
             }
             .setNegativeButton("Отмена", null).show()

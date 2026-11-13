@@ -51,6 +51,25 @@ class Collector(private val ctx: Context) {
         o.put("android", Build.VERSION.RELEASE)
         o.put("sdk", Build.VERSION.SDK_INT)
         o.put("securityPatch", Build.VERSION.SECURITY_PATCH)
+        // Public device descriptors only; no IMEI, serial, Android ID or GPS coordinates.
+        o.put("brand", Build.BRAND)
+        o.put("device", Build.DEVICE)
+        o.put("product", Build.PRODUCT)
+        o.put("hardware", Build.HARDWARE)
+        o.put("board", Build.BOARD)
+        o.put("manufacturer", Build.MANUFACTURER)
+        o.put("fingerprint", Build.FINGERPRINT)
+        o.put("bootloader", Build.BOOTLOADER)
+        o.put("supportedAbis", org.json.JSONArray().also { a -> Build.SUPPORTED_ABIS.forEach { a.put(it) } })
+        o.put("buildType", Build.TYPE)
+        o.put("locale", java.util.Locale.getDefault().toLanguageTag())
+        o.put("timezone", java.util.TimeZone.getDefault().id)
+        val dm = ctx.resources.displayMetrics
+        o.put("screenWidthPx", dm.widthPixels)
+        o.put("screenHeightPx", dm.heightPixels)
+        o.put("densityDpi", dm.densityDpi)
+        o.put("appId", ctx.packageName)
+        o.put("collectedAt", System.currentTimeMillis())
         val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val mi = ActivityManager.MemoryInfo()
         am.getMemoryInfo(mi)
@@ -131,6 +150,7 @@ class Collector(private val ctx: Context) {
         val lastUsed = HashMap<String, Long>()
         val fg30 = HashMap<String, Long>()
         val fgDaily = HashMap<String, LongArray>()
+        var usageStatsOk = false
         if (usage) {
             try {
                 val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
@@ -140,7 +160,10 @@ class Collector(private val ctx: Context) {
                     val idx = ((s.firstTimeStamp - start0) / day).toInt().coerceIn(0, days - 1)
                     fgDaily.getOrPut(s.packageName) { LongArray(days) }[idx] += s.totalTimeInForeground
                 }
-            } catch (e: Exception) { /* статистика недоступна */ }
+                usageStatsOk = true
+            } catch (e: Exception) {
+                usageStatsOk = false
+            }
         }
 
         var wifi = HashMap<Int, LongArray>()
@@ -218,7 +241,8 @@ class Collector(private val ctx: Context) {
                 notifListener = pkg in notif, accessibility = pkg in acc, deviceAdmin = pkg in admins,
                 batteryUnrestricted = try { power.isIgnoringBatteryOptimizations(pkg) } catch (e: Exception) { false }
             )
-            val (cat, why) = Rules.classify(raw, now, usage)
+            val appUsageKnown = usageStatsOk && lastUsed.containsKey(pkg)
+            val (cat, why) = Rules.classify(raw, now, appUsageKnown)
             out.add(raw.copy(category = cat, reason = why))
         }
         progress(base.size, base.size)
