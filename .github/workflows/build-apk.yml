@@ -2,7 +2,7 @@ name: Сборка Анализ телефона 2
 
 on:
   push:
-    branches: [main, "feature/**"]
+    branches: [main, "feature/**", "fix/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
