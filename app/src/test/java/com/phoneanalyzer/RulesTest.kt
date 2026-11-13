@@ -67,7 +67,7 @@ class RulesTest {
     @Test
     fun highTrafficDoesNotRecommendDeletion() {
         val (category, _) = Rules.classify(
-            app(lastUsed = 10L, wifi = listOf(2L shl 30), fg30 = 1L),
+            app(lastUsed = 99L * 86_400_000L, wifi = listOf(2L shl 30), fg30 = 1L),
             now = 100L * 86_400_000L,
             usageKnown = true
         )
