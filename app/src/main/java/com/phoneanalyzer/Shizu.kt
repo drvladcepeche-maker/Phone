@@ -55,11 +55,16 @@ object Shizu {
         require(validPkg(pkg)) { "Недопустимое имя пакета" }
 
         val args = when (operation) {
-            "disable" -> arrayOf("pm", "disable-user", "--user", "0", pkg)
+            "disable" -> {
+                require(system) { "Отключение разрешено только для системных приложений" }
+                arrayOf("pm", "disable-user", "--user", "0", pkg)
+            }
             "enable" -> arrayOf("pm", "enable", "--user", "0", pkg)
             "cache" -> arrayOf("pm", "clear", "--cache-only", pkg)
-            "uninstall" -> if (system) arrayOf("pm", "uninstall", "--user", "0", pkg)
-                           else arrayOf("pm", "uninstall", pkg)
+            "uninstall" -> {
+                require(!system) { "Удаление системных приложений запрещено" }
+                arrayOf("pm", "uninstall", pkg)
+            }
             else -> throw IllegalArgumentException("Операция не разрешена")
         }
 
