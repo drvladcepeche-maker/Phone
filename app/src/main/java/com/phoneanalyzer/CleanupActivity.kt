@@ -84,6 +84,17 @@ class CleanupActivity : Activity() {
     private fun isProtected(a: AppData): Boolean =
         a.pkg == packageName || a.pkg == Shizu.PKG || a.pkg == homePkg() || (a.system && Rules.isCritical(a.pkg))
 
+    /** Повторная проверка допустимости действия для любого источника выбора, включая удалённый план. */
+    private fun isActionAllowed(a: AppData, action: String): Boolean {
+        if (!a.enabled || isProtected(a) || !Shizu.validPkg(a.pkg)) return false
+        return when (action) {
+            "uninstall" -> !a.system && a.category == "Можно удалить"
+            "disable" -> a.system && a.category == "Можно отключить"
+            "cache" -> a.cacheBytes >= 100L * (1L shl 20)
+            else -> false
+        }
+    }
+
     private fun reload() {
         loading = true
         render()
@@ -205,22 +216,21 @@ class CleanupActivity : Activity() {
     // ---------- План ----------
 
     private fun loadPlan() {
-        val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-        val repo = prefs.getString("repo", "") ?: ""
-        val token = prefs.getString("token", "") ?: ""
-        if (repo.isEmpty() || token.isEmpty()) { toast("Укажите репозиторий и токен во вкладке «Отчёт» и сохраните настройки"); return }
+        // Публичный план не требует GitHub PAT. Старые открытые токены намеренно удалены.
         bg {
-            val conn = URL("https://api.github.com/repos/" + repo + "/contents/plans/cleanup.json").openConnection() as HttpURLConnection
+            val conn = URL("https://raw.githubusercontent.com/drvladcepeche-maker/Phone/main/plans/cleanup.json")
+                .openConnection() as HttpURLConnection
             try {
-                conn.connectTimeout = 30000; conn.readTimeout = 60000
-                conn.setRequestProperty("Authorization", "Bearer " + token)
-                conn.setRequestProperty("Accept", "application/vnd.github.raw+json")
-                conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+                conn.connectTimeout = 15000; conn.readTimeout = 30000
+                conn.setRequestProperty("Accept", "application/json")
+                conn.setRequestProperty("Cache-Control", "no-cache")
                 val code = conn.responseCode
-                if (code == 404) { runOnUiThread { toast("Плана нет: plans/cleanup.json не найден") }; return@bg }
+                if (code == 404) { runOnUiThread { toast("План не найден в основном репозитории") }; return@bg }
                 if (code !in 200..299) { runOnUiThread { toast("Не удалось загрузить план: HTTP " + code) }; return@bg }
                 val text = conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
                 runOnUiThread { applyPlan(JSONObject(text)) }
+            } catch (e: Exception) {
+                runOnUiThread { toast("Ошибка загрузки плана: " + (e.message ?: "неизвестная ошибка")) }
             } finally { conn.disconnect() }
         }
     }
@@ -233,10 +243,14 @@ class CleanupActivity : Activity() {
             for (i in 0 until arr.length()) {
                 val pkg = arr.optString(i)
                 val a = apps.find { it.pkg == pkg }
-                if (a == null || !Shizu.validPkg(pkg) || isProtected(a)) { skipped++; continue }
                 val ex = items.find { it.pkg == pkg && it.action == act }
-                if (ex != null) { ex.checked = true; marked++ }
-                else { items.add(Item(pkg, a.label, act, a.system, "Из плана. " + Fmt.bytes(a.storage)).also { it.checked = true }); marked++ }
+                // План может только отметить уже проверенного кандидата. Он не может добавлять новые действия.
+                if (a == null || ex == null || !isActionAllowed(a, act) || ex.system != a.system) {
+                    skipped++
+                    continue
+                }
+                ex.checked = true
+                marked++
             }
         }
         planNote = "План загружен" + (if (plan.optString("note").isNotEmpty()) ": " + plan.optString("note") else "") +
@@ -249,8 +263,8 @@ class CleanupActivity : Activity() {
     private fun actionName(a: String) = when (a) { "uninstall" -> "удалить"; "disable" -> "отключить"; else -> "очистить кэш" }
 
     private fun confirmRun() {
-        val sel = items.filter { it.checked }
-        if (sel.isEmpty()) { toast("Ничего не отмечено"); return }
+        val sel = items.filter { it.checked && apps.firstOrNull { a -> a.pkg == it.pkg }?.let { a -> isActionAllowed(a, it.action) && a.system == it.system } == true }
+        if (sel.isEmpty()) { toast("Нет отмеченных действий, прошедших повторную проверку безопасности"); return }
         val msg = sel.take(20).joinToString("\n") { "• " + actionName(it.action) + ": " + it.label } +
             (if (sel.size > 20) "\n…и ещё " + (sel.size - 20) else "") +
             (if (sel.any { it.action == "uninstall" }) "\n\nУдалённые приложения вернуть нельзя (кроме повторной установки)." else "") +
@@ -262,8 +276,12 @@ class CleanupActivity : Activity() {
 
     private fun run(sel: List<Item>) {
         results.clear()
-        if (Shizu.ready()) runShizuku(sel) else {
-            queue.clear(); queue.addAll(sel); next()
+        val safe = sel.filter { item ->
+            apps.firstOrNull { it.pkg == item.pkg }?.let { isActionAllowed(it, item.action) && it.system == item.system } == true
+        }
+        if (safe.isEmpty()) { toast("Все выбранные действия отклонены повторной проверкой безопасности"); return }
+        if (Shizu.ready()) runShizuku(safe) else {
+            queue.clear(); queue.addAll(safe); next()
         }
     }
 
@@ -272,7 +290,7 @@ class CleanupActivity : Activity() {
         bg {
             for (item in sel) {
                 val app = apps.firstOrNull { it.pkg == item.pkg }
-                if (app == null || isProtected(app) || !Shizu.validPkg(item.pkg)) {
+                if (app == null || !isActionAllowed(app, item.action) || app.system != item.system) {
                     results.add("✗ " + item.label + ": пакет защищён или недопустим")
                     continue
                 }
@@ -294,6 +312,12 @@ class CleanupActivity : Activity() {
     private fun next() {
         val it = queue.removeFirstOrNull()
         if (it == null) { currentItem = null; showResults(); reload(); return }
+        val currentApp = apps.firstOrNull { app -> app.pkg == it.pkg }
+        if (currentApp == null || !isActionAllowed(currentApp, it.action) || currentApp.system != it.system) {
+            results.add("✗ пропущено повторной проверкой безопасности: " + it.label)
+            next()
+            return
+        }
         currentItem = it
         val intent = if (it.action == "uninstall")
             Intent(Intent.ACTION_UNINSTALL_PACKAGE, Uri.parse("package:" + it.pkg)).putExtra(Intent.EXTRA_RETURN_RESULT, true)
@@ -313,15 +337,35 @@ class CleanupActivity : Activity() {
         if (it != null) {
             if (it.action == "uninstall") {
                 val ok = resultCode == RESULT_OK
-                log(it, ok, if (ok) "удалено" else "отменено")
-                results.add((if (ok) "✓ удалено: " else "– отменено: ") + it.label)
+                log(it, ok, if (ok) "удаление подтверждено Android" else "отменено или не подтверждено")
+                results.add((if (ok) "✓ удалено: " else "– не подтверждено: ") + it.label)
+                it.checked = false
+                next()
+            } else if (it.action == "disable") {
+                val state = try { packageManager.getApplicationEnabledSetting(it.pkg) } catch (_: Exception) { PackageManager.COMPONENT_ENABLED_STATE_DEFAULT }
+                val ok = state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED ||
+                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER ||
+                    state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED
+                log(it, ok, if (ok) "отключение подтверждено состоянием PackageManager" else "состояние отключения не подтверждено")
+                results.add((if (ok) "✓ отключено: " else "– отключение не подтверждено: ") + it.label)
+                it.checked = false
+                next()
             } else {
-                log(it, true, "открыто в настройках")
-                results.add("→ " + actionName(it.action) + " (в настройках): " + it.label)
+                // Открытие экрана настроек не является доказательством очистки кэша.
+                val before = apps.firstOrNull { app -> app.pkg == it.pkg }?.cacheBytes ?: -1L
+                bg {
+                    val after = try { Collector(applicationContext).collect().firstOrNull { app -> app.pkg == it.pkg }?.cacheBytes ?: -1L }
+                        catch (_: Exception) { -1L }
+                    val ok = before >= 0L && after >= 0L && after < before
+                    log(it, ok, if (ok) "уменьшение кэша подтверждено повторным сканированием" else "изменение кэша не подтверждено")
+                    runOnUiThread {
+                        results.add((if (ok) "✓ кэш уменьшен: " else "– очистка кэша не подтверждена: ") + it.label)
+                        it.checked = false
+                        next()
+                    }
+                }
             }
-            it.checked = false
-        }
-        next()
+        } else next()
     }
 
     private fun showResults() {
