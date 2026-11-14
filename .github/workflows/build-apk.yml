@@ -99,7 +99,8 @@ jobs:
       - name: Build signed release APK
         run: gradle assembleRelease --no-daemon
       - name: Verify release APK signature
-        run: "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
+        run: >-
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
       - name: Rename release APK
         run: cp app/build/outputs/apk/release/app-release.apk "Анализ телефона 2-v1.3.1.apk"
       - name: Upload signed release APK
