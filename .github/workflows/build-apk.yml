@@ -2,7 +2,7 @@ name: Сборка Анализ телефона 2
 
 on:
   push:
-    branches: [main, "feature/**", "fix/**"]
+    branches: [main, "feature/**", "fix/**", "security/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -39,6 +39,31 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+  phone-analyzer-auth-smoke:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/security/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify missing and invalid device tokens are rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://xevqbgjtxuveeqaiacvm.supabase.co/functions/v1/phone-analyzer"
+          MISSING_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL" \
+            -H 'Content-Type: application/json' --data '{"action":"ping"}')"
+          if [[ "$MISSING_STATUS" != "401" ]]; then
+            echo "::error::phone-analyzer missing-token request returned HTTP $MISSING_STATUS, expected 401"
+            exit 1
+          fi
+          INVALID_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL" \
+            -H 'Content-Type: application/json' \
+            -H 'Authorization: Bearer 0000000000000000000000000000000000000000000000000000000000000000' \
+            --data '{"action":"ping"}')"
+          if [[ "$INVALID_STATUS" != "401" ]]; then
+            echo "::error::phone-analyzer invalid-token request returned HTTP $INVALID_STATUS, expected 401"
+            exit 1
+          fi
+          echo "phone-analyzer rejected missing and invalid device tokens."
   build-trusted-main:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
